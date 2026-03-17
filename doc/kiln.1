@@ -1,0 +1,240 @@
+.\" kiln.1 - kiln build system manual page
+.\" Copyright (c) 2025-2026 Jon Mayo <jon@rm-f.net>
+.\" Licensed under MIT OR Apache-2.0
+.TH KILN 1 "2026-03-16" "kiln" "User Commands"
+.SH NAME
+kiln \- a build system with Tcl-based build descriptions
+.SH SYNOPSIS
+.B kiln
+.RI [ options ]
+.RI [ target .\|.\|.]
+.SH DESCRIPTION
+.B kiln
+is a build system that reads build descriptions written in Tcl
+(called Kilnfiles) and executes commands in dependency order.
+It uses a DAG of file and command nodes, hybrid staleness detection
+(stat fingerprint + content hash + command string hash), and
+compiler depfile parsing for automatic header dependencies.
+.PP
+Build artifacts are placed in
+.IR build/<triplet>/ ,
+where
+.I <triplet>
+is the target toolchain identifier (e.g.\&
+.IR x86_64-linux-gnu ).
+The triplet is detected automatically via
+.B cc \-dumpmachine
+or set explicitly with
+.BR \-\-triplet .
+.SH OPTIONS
+.TP
+.BI \-a " action" "\fR,\fP \-\-action " action
+Run a built-in action instead of building targets.
+See
+.B ACTIONS
+below.
+.TP
+.BI \-\-triplet " triplet"
+Set the target triplet explicitly, skipping
+.B cc \-dumpmachine
+detection.
+.TP
+.BR \-n ", " \-\-dry\-run
+Print commands that would be executed without running them.
+.TP
+.BI \-j " N"
+Run up to
+.I N
+jobs in parallel.
+Defaults to the number of online CPUs.
+.TP
+.BR \-h ", " \-\-help
+Print a usage summary and exit.
+.SH ACTIONS
+Actions are invoked with
+.B \-a
+and perform operations other than building targets.
+Using a flag rather than positional arguments avoids ambiguity
+when a build target shares a name with an action.
+.TP
+.B clean
+Delete all output files declared in the DAG and remove any
+parent directories that become empty.
+Also removes the staleness database
+.RI ( kiln.cdb )
+and the build directory if empty.
+.TP
+.B status
+Report inconsistencies between the staleness database and the
+current DAG.
+.I (Not yet implemented.)
+.SH KILNFILE SYNTAX
+Build descriptions are Tcl scripts.
+kiln extends the Tcl interpreter with the following commands:
+.SS Build Commands
+.TP
+.BI "rule " "outputs " { " body " }
+Define a build rule.
+.I outputs
+is a Tcl list of output file paths.
+The
+.I body
+is evaluated in Tcl context and may call:
+.RS
+.TP
+.BI "inputs " files...
+Declare input files.
+Sets the variable
+.BR $in .
+May be called multiple times; inputs accumulate.
+.TP
+.BI "command " {template}
+Set the shell command to execute.
+The template is evaluated after the body completes,
+so
+.BR $out ", " $in ", and " $depfile
+are all available for substitution.
+Enclose in braces to defer expansion.
+.TP
+.BI "depfile " path
+Declare a compiler-generated dependency file
+(e.g.\& from
+.BR "cc \-MMD" ).
+Sets the variable
+.BR $depfile .
+.RE
+.TP
+.BI "source " filename
+Read and evaluate another Tcl file.
+Searches the current directory first, then each directory in the
+.B $SourcePath
+variable.
+.SS Tcl Extensions
+.TP
+.BI "glob " "pattern ..."
+Return a space-separated list of files matching the given
+shell glob patterns.
+Elements containing whitespace are brace-quoted.
+.TP
+.BI "file " "subcommand arg"
+Path manipulation.
+Subcommands:
+.BR dirname ,
+.BR tail ,
+.BR extension ,
+.BR rootname .
+.TP
+.BI "lindex " "list index"
+Return element
+.I index
+from a Tcl list.
+.TP
+.BI "llength " list
+Return the number of elements in a Tcl list.
+.SS Predefined Variables
+.TP
+.B $Triplet
+The target triplet string.
+.TP
+.B $Jobs
+Number of parallel jobs.
+.TP
+.B $DryRun
+.B 1
+if
+.B \-\-dry\-run
+was specified, otherwise
+.BR 0 .
+.TP
+.B $SourcePath
+Space-separated list of directories searched by
+.BR source .
+.SH STALENESS DETECTION
+kiln uses a two-level check for each input file:
+.IP 1. 4
+Compare the stat fingerprint (mtime, size, inode, ctime) against
+the value stored in
+.IR kiln.cdb .
+If it matches, the file is unchanged (fast path).
+.IP 2. 4
+If the stat differs, hash the file contents and compare against the
+stored hash.
+If the hash matches, the file was touched but not modified
+(e.g.\&
+.BR touch ).
+.PP
+The command string for each rule is also hashed.
+Changing compiler flags or other command arguments triggers a rebuild
+even if no input files changed.
+.PP
+Compiler-generated depfiles
+.RB ( "cc \-MMD" )
+are parsed after each compilation to discover implicit header
+dependencies.
+These are stored in
+.I kiln.cdb
+and checked for staleness on subsequent builds.
+.SH FILES
+.TP
+.I Kilnfile
+Build description file (Tcl script).
+.TP
+.IR build/<triplet>/
+Directory for build artifacts.
+.TP
+.IR build/<triplet>/kiln.cdb
+Persistent staleness database (CDB format).
+.SH EXIT STATUS
+.TP
+.B 0
+All targets are up to date or were built successfully.
+.TP
+.B 1
+A build command failed, a cycle was detected, or an error occurred.
+.SH EXAMPLES
+Build a project:
+.PP
+.RS
+.nf
+kiln Kilnfile
+.fi
+.RE
+.PP
+Clean all outputs:
+.PP
+.RS
+.nf
+kiln -a clean Kilnfile
+.fi
+.RE
+.PP
+Dry run with explicit triplet:
+.PP
+.RS
+.nf
+kiln -n --triplet arm-linux-gnueabihf Kilnfile
+.fi
+.RE
+.PP
+Example Kilnfile:
+.PP
+.RS
+.nf
+set cflags "-Wall -O2"
+
+rule build/$Triplet/hello.o {
+    inputs hello.c
+    depfile build/$Triplet/hello.d
+    command {cc $cflags -c -o $out $in -MMD -MF $depfile}
+}
+
+rule build/$Triplet/hello {
+    inputs build/$Triplet/hello.o
+    command {cc -o $out $in}
+}
+.fi
+.RE
+.SH AUTHORS
+Jon Mayo <jon@rm-f.net>
+.SH LICENSE
+MIT OR Apache-2.0

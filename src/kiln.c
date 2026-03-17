@@ -1,0 +1,198 @@
+/* kiln.c : main entry point */
+/* Copyright (c) 2025-2026 Jon Mayo <jon@rm-f.net>
+ * Licensed under MIT OR Apache-2.0 */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "picol_ext.c"
+#include "dag.c"
+#include "hash.c"
+#include "mapfile.c"
+#include "cdb.c"
+#include "depfile.c"
+#include "term.c"
+#include "execute.c"
+#include "commands.c"
+
+static char *
+read_file(const char *path)
+{
+	FILE *fp = fopen(path, "r");
+
+	if (!fp) return NULL;
+
+	fseek(fp, 0, SEEK_END);
+	long len = ftell(fp);
+	fseek(fp, 0, SEEK_SET);
+	char *buf = xmalloc(len + 1);
+	size_t n = fread(buf, 1, len, fp);
+	buf[n] = '\0';
+	fclose(fp);
+	return buf;
+}
+
+static void
+usage(void)
+{
+	fprintf(stderr, "Usage: kiln [options] [target...]\n"
+	        "Options:\n"
+	        "  --triplet <triplet>  Set target triplet (skip cc -dumpmachine)\n"
+	        "  -a, --action <name>  Run a built-in action (clean, status)\n"
+	        "  -n, --dry-run        Print commands without executing\n"
+	        "  -j N                 Parallel jobs (default: CPU count)\n"
+	        "  -h, --help           Show this help\n");
+}
+
+int
+main(int argc, char **argv)
+{
+	struct picolInterp *interp = picolInitInterp();
+	picolRegisterCoreCommands(interp);
+	kiln_register_ext_commands(interp);
+
+	term_init();
+
+	struct dag graph;
+	dag_init(&graph);
+	kiln_set_dag(&graph);
+	kiln_register_commands(interp);
+
+	/* Parse command-line arguments */
+	const char *triplet = NULL;
+	const char *action = NULL;
+	int dry_run = 0;
+	int jobs = 0;
+	int i;
+
+	for (i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "--triplet") == 0 && i + 1 < argc) {
+			triplet = argv[++i];
+		} else if ((strcmp(argv[i], "-a") == 0 ||
+		            strcmp(argv[i], "--action") == 0) && i + 1 < argc) {
+			action = argv[++i];
+		} else if (strcmp(argv[i], "-n") == 0 ||
+		           strcmp(argv[i], "--dry-run") == 0) {
+			dry_run = 1;
+		} else if (strcmp(argv[i], "-j") == 0 && i + 1 < argc) {
+			jobs = atoi(argv[++i]);
+		} else if (strcmp(argv[i], "-h") == 0 ||
+		           strcmp(argv[i], "--help") == 0) {
+			usage();
+			picolFreeInterp(interp);
+			dag_free(&graph);
+			return 0;
+		} else if (argv[i][0] == '-') {
+			fprintf(stderr, "kiln: unknown option '%s'\n", argv[i]);
+			usage();
+			picolFreeInterp(interp);
+			dag_free(&graph);
+			return 1;
+		} else {
+			break; /* remaining args are targets */
+		}
+	}
+
+	/* Detect triplet */
+	char triplet_buf[256];
+
+	if (!triplet) {
+		if (kiln_run_capture("cc -dumpmachine", triplet_buf, sizeof(triplet_buf)) != OK) {
+			fprintf(stderr, "kiln: cc -dumpmachine failed. "
+			        "Use --triplet to specify the target triplet.\n");
+			picolFreeInterp(interp);
+			dag_free(&graph);
+			return 1;
+		}
+
+		triplet = triplet_buf;
+	}
+
+	if (jobs <= 0) jobs = kiln_cpu_count();
+
+	/* Export settings as Tcl variables */
+	picolSetVar(interp, "Triplet", (char *)triplet);
+	{
+		char buf[32];
+		snprintf(buf, sizeof(buf), "%d", jobs);
+		picolSetVar(interp, "Jobs", buf);
+	}
+	picolSetVar(interp, "DryRun", dry_run ? "1" : "0");
+
+	/* Evaluate Kilnfile(s) passed as arguments */
+	if (i < argc) {
+		for (; i < argc; i++) {
+			char *script = read_file(argv[i]);
+
+			if (!script) {
+				fprintf(stderr, "kiln: cannot open '%s'\n", argv[i]);
+				picolFreeInterp(interp);
+				dag_free(&graph);
+				return 1;
+			}
+
+			free(interp->current_file);
+			interp->current_file = xstrdup(argv[i]);
+
+			if (picolEval(interp, script) != PICOL_OK) {
+				fprintf(stderr, "%s\n", interp->result);
+				free(script);
+				picolFreeInterp(interp);
+				dag_free(&graph);
+				return 1;
+			}
+
+			free(script);
+		}
+	}
+
+	/* Topological sort */
+	int cycle_node;
+
+	if (dag_topo_sort(&graph, &cycle_node) != OK) {
+		fprintf(stderr, "kiln: dependency cycle detected");
+
+		if (cycle_node >= 0 && graph.nodes[cycle_node]->name)
+			fprintf(stderr, " involving '%s'", graph.nodes[cycle_node]->name);
+
+		fprintf(stderr, "\n");
+		picolFreeInterp(interp);
+		dag_free(&graph);
+		return 1;
+	}
+
+	/* Set up build config */
+	char build_dir[4096];
+	char cdb_path[4096];
+	snprintf(build_dir, sizeof(build_dir), "build/%s", triplet);
+	snprintf(cdb_path, sizeof(cdb_path), "build/%s/kiln.cdb", triplet);
+
+	struct build_config cfg;
+	cfg.build_dir = build_dir;
+	cfg.cdb_path = cdb_path;
+	cfg.dry_run = dry_run;
+
+	/* Dispatch action or build */
+	int result = 0;
+
+	if (action) {
+		if (strcmp(action, "clean") == 0) {
+			result = build_clean(&graph, &cfg);
+		} else if (strcmp(action, "status") == 0) {
+			fprintf(stderr, "kiln: status action not yet implemented\n");
+			result = 1;
+		} else {
+			fprintf(stderr, "kiln: unknown action '%s'\n", action);
+			result = 1;
+		}
+	} else if (graph.order_count > 0) {
+		result = build_execute(&graph, &cfg);
+	} else {
+		printf("kiln: nothing to do\n");
+	}
+
+	picolFreeInterp(interp);
+	dag_free(&graph);
+	return result;
+}
