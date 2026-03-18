@@ -39,6 +39,18 @@ Set the target triplet explicitly, skipping
 .B cc \-dumpmachine
 detection.
 .TP
+.BI \-\-lib " file.tcl"
+Load a Tcl library file before evaluating Kilnfiles.
+May be specified multiple times; files are loaded in order.
+Libraries define procs that Kilnfiles can call.
+.TP
+.B \-\-no\-stdlib
+Skip loading the built-in standard library
+.RI ( kiln.tcl ).
+Combine with
+.B \-\-lib
+to substitute a custom standard library.
+.TP
 .BR \-n ", " \-\-dry\-run
 Print commands that would be executed without running them.
 .TP
@@ -213,6 +225,14 @@ Dry run with explicit triplet:
 .RS
 .nf
 kiln -n --triplet arm-linux-gnueabihf Kilnfile
+.fi
+.RE
+.PP
+Use a custom library instead of the standard library:
+.PP
+.RS
+.nf
+kiln --no-stdlib --lib my-stdlib.tcl Kilnfile
 .fi
 .RE
 .PP

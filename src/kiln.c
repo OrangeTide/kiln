@@ -33,6 +33,33 @@ read_file(const char *path)
 	return buf;
 }
 
+// Evaluate a Tcl file in the interpreter. Returns 0 on success.
+static int
+eval_file(struct picolInterp *interp, const char *path)
+{
+	char *script = read_file(path);
+
+	if (!script) {
+		fprintf(stderr, "kiln: cannot open '%s'\n", path);
+		return 1;
+	}
+
+	free(interp->current_file);
+	interp->current_file = xstrdup(path);
+
+	int ret = picolEval(interp, script);
+	free(script);
+
+	if (ret != PICOL_OK) {
+		fprintf(stderr, "%s\n", interp->result);
+		return 1;
+	}
+
+	return 0;
+}
+
+#define MAX_LIBS 64
+
 static void
 usage(void)
 {
@@ -40,6 +67,8 @@ usage(void)
 	        "Options:\n"
 	        "  --triplet <triplet>  Set target triplet (skip cc -dumpmachine)\n"
 	        "  -a, --action <name>  Run a built-in action (clean, status)\n"
+	        "  --lib <file.tcl>     Load a Tcl library before Kilnfiles\n"
+	        "  --no-stdlib          Skip loading the built-in standard library\n"
 	        "  -n, --dry-run        Print commands without executing\n"
 	        "  -j N                 Parallel jobs (default: CPU count)\n"
 	        "  -h, --help           Show this help\n");
@@ -62,6 +91,9 @@ main(int argc, char **argv)
 	/* Parse command-line arguments */
 	const char *triplet = NULL;
 	const char *action = NULL;
+	const char *libs[MAX_LIBS];
+	int lib_count = 0;
+	int no_stdlib = 0;
 	int dry_run = 0;
 	int jobs = 0;
 	int i;
@@ -72,6 +104,16 @@ main(int argc, char **argv)
 		} else if ((strcmp(argv[i], "-a") == 0 ||
 		            strcmp(argv[i], "--action") == 0) && i + 1 < argc) {
 			action = argv[++i];
+		} else if (strcmp(argv[i], "--lib") == 0 && i + 1 < argc) {
+			if (lib_count >= MAX_LIBS) {
+				fprintf(stderr, "kiln: too many --lib arguments\n");
+				picolFreeInterp(interp);
+				dag_free(&graph);
+				return 1;
+			}
+			libs[lib_count++] = argv[++i];
+		} else if (strcmp(argv[i], "--no-stdlib") == 0) {
+			no_stdlib = 1;
 		} else if (strcmp(argv[i], "-n") == 0 ||
 		           strcmp(argv[i], "--dry-run") == 0) {
 			dry_run = 1;
@@ -120,30 +162,26 @@ main(int argc, char **argv)
 	}
 	picolSetVar(interp, "DryRun", dry_run ? "1" : "0");
 
+	/* Load standard library (unless --no-stdlib) */
+	if (!no_stdlib) {
+		// TODO: load embedded kiln.tcl when available
+	}
+
+	/* Load user-specified libraries */
+	for (int j = 0; j < lib_count; j++) {
+		if (eval_file(interp, libs[j]) != 0) {
+			picolFreeInterp(interp);
+			dag_free(&graph);
+			return 1;
+		}
+	}
+
 	/* Evaluate Kilnfile(s) passed as arguments */
-	if (i < argc) {
-		for (; i < argc; i++) {
-			char *script = read_file(argv[i]);
-
-			if (!script) {
-				fprintf(stderr, "kiln: cannot open '%s'\n", argv[i]);
-				picolFreeInterp(interp);
-				dag_free(&graph);
-				return 1;
-			}
-
-			free(interp->current_file);
-			interp->current_file = xstrdup(argv[i]);
-
-			if (picolEval(interp, script) != PICOL_OK) {
-				fprintf(stderr, "%s\n", interp->result);
-				free(script);
-				picolFreeInterp(interp);
-				dag_free(&graph);
-				return 1;
-			}
-
-			free(script);
+	for (; i < argc; i++) {
+		if (eval_file(interp, argv[i]) != 0) {
+			picolFreeInterp(interp);
+			dag_free(&graph);
+			return 1;
 		}
 	}
 

@@ -113,6 +113,8 @@ sh doc/gen-screenshot.sh
 | `-a clean` | Delete all declared outputs and empty parent dirs |
 | `-a status` | Show CDB/DAG inconsistencies *(not yet implemented)* |
 | `--triplet T` | Set target triplet (skip `cc -dumpmachine`) |
+| `--lib F` | Load a Tcl library before Kilnfiles (repeatable) |
+| `--no-stdlib` | Skip the built-in standard library |
 | `-n`, `--dry-run` | Print commands without running them |
 | `-j N` | Parallel jobs (default: CPU count) |
 | `-h`, `--help` | Show usage |
@@ -124,6 +126,18 @@ sh doc/gen-screenshot.sh
 | `NO_COLOR` | Disable colored output ([no-color.org](https://no-color.org/)) |
 | `CLICOLOR_FORCE` | Force color even when not a TTY |
 | `TERM` | Color disabled when `dumb`, empty, or unset |
+
+## Amalgamation Build
+
+A single-file amalgamation can be generated for easy distribution:
+
+```sh
+sh bin/amalgamation.sh > kiln-amalgamation.c
+cc -O2 -o kiln kiln-amalgamation.c
+```
+
+The amalgamation resolves all local `#include "..."` directives into
+one self-contained C file. No source tree needed to compile it.
 
 ## License
 
