@@ -17,6 +17,61 @@ kiln_set_dag(struct dag *g)
 	g_dag = g;
 }
 
+/* Global build directory prefix - set by builddir command or --builddir flag.
+ * When non-NULL, rule outputs and depfiles are automatically prefixed. */
+static char *g_builddir;
+static int g_builddir_from_cli;  // set when --builddir was used
+
+void
+kiln_set_builddir(const char *dir)
+{
+	free(g_builddir);
+	g_builddir = dir ? xstrdup(dir) : NULL;
+}
+
+void
+kiln_set_builddir_cli(const char *dir)
+{
+	kiln_set_builddir(dir);
+	g_builddir_from_cli = 1;
+}
+
+const char *
+kiln_get_builddir(void)
+{
+	return g_builddir;
+}
+
+// Prefix a path with builddir. Caller must free the result.
+static char *
+builddir_prefix(const char *path)
+{
+	if (!g_builddir || !g_builddir[0])
+		return xstrdup(path);
+
+	size_t blen = strlen(g_builddir);
+	size_t plen = strlen(path);
+	char *result = xmalloc(blen + 1 + plen + 1);
+	memcpy(result, g_builddir, blen);
+	result[blen] = '/';
+	memcpy(result + blen + 1, path, plen + 1);
+	return result;
+}
+
+// Check if a file node has a producer (a CMD node with an edge to it).
+static int
+dag_has_producer(struct dag *g, int file_id)
+{
+	struct dag_node *n = g->nodes[file_id];
+	struct dag_edge *e = n->inputs;
+	while (e) {
+		if (g->nodes[e->node_id]->type == NODE_CMD)
+			return 1;
+		e = e->next;
+	}
+	return 0;
+}
+
 /*
  * This file is #included from kiln.c after picol_ext.c,
  * so all picol types, functions, and macros are already visible.
@@ -33,21 +88,48 @@ cmd_rule_inputs(struct picolInterp *i, int argc,
 {
 	if (argc < 2) return picolArityErr(i, argv[0]);
 
-	/* Concatenate all args as space-separated list */
+	// First pass: compute total size (with possible builddir prefixing)
+	// For each input, if builddir is set and the prefixed name is a known
+	// output in the DAG, use the prefixed name. Otherwise use as-is.
 	size_t total = 0;
-
-	for (int j = 1; j < argc; j++) total += strlen(argv[j]) + 1;
+	for (int j = 1; j < argc; j++) {
+		if (g_builddir && g_builddir[0]) {
+			char *prefixed = builddir_prefix(argv[j]);
+			int fid = dag_find_file(g_dag, prefixed);
+			if (fid >= 0 && dag_has_producer(g_dag, fid)) {
+				total += strlen(prefixed) + 1;
+			} else {
+				total += strlen(argv[j]) + 1;
+			}
+			free(prefixed);
+		} else {
+			total += strlen(argv[j]) + 1;
+		}
+	}
 
 	size_t existing = rule_inputs ? strlen(rule_inputs) : 0;
 	rule_inputs = realloc(rule_inputs, existing + total + 1);
 	char *p = rule_inputs + existing;
 
+	// Second pass: build the input list with resolved names
 	for (int j = 1; j < argc; j++) {
 		if (existing > 0 || j > 1) *p++ = ' ';
 
-		size_t l = strlen(argv[j]);
-		memcpy(p, argv[j], l);
+		char *resolved = NULL;
+		if (g_builddir && g_builddir[0]) {
+			char *prefixed = builddir_prefix(argv[j]);
+			int fid = dag_find_file(g_dag, prefixed);
+			if (fid >= 0 && dag_has_producer(g_dag, fid))
+				resolved = prefixed;
+			else
+				free(prefixed);
+		}
+
+		const char *name = resolved ? resolved : argv[j];
+		size_t l = strlen(name);
+		memcpy(p, name, l);
 		p += l;
+		free(resolved);
 	}
 
 	*p = '\0';
@@ -77,7 +159,7 @@ cmd_rule_depfile(struct picolInterp *i, int argc,
 	if (argc != 2) return picolArityErr(i, argv[0]);
 
 	free(rule_depfile);
-	rule_depfile = xstrdup(argv[1]);
+	rule_depfile = builddir_prefix(argv[1]);
 	picolSetVar(i, "depfile", rule_depfile);
 	return PICOL_OK;
 }
@@ -96,7 +178,6 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 {
 	if (argc != 3) return picolArityErr(i, argv[0]);
 
-	char *output_list = argv[1];
 	char *body = argv[2];
 
 	/* Initialize per-rule state */
@@ -104,6 +185,37 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 	rule_command = NULL;
 	rule_command_template = NULL;
 	rule_depfile = NULL;
+
+	// Build prefixed output list when builddir is set.
+	// Each output in the list gets $builddir/ prepended.
+	char *output_list;
+	if (g_builddir && g_builddir[0]) {
+		const char *p = argv[1];
+		const char *start;
+		int len;
+		size_t total = 0;
+
+		// First pass: compute size
+		const char *p2 = argv[1];
+		while (list_next(&p2, &start, &len)) {
+			total += strlen(g_builddir) + 1 + len + 1;
+		}
+		output_list = xmalloc(total + 1);
+		char *wp = output_list;
+		int first = 1;
+		while (list_next(&p, &start, &len)) {
+			if (!first) *wp++ = ' ';
+			first = 0;
+			size_t blen = strlen(g_builddir);
+			memcpy(wp, g_builddir, blen);
+			wp[blen] = '/';
+			memcpy(wp + blen + 1, start, len);
+			wp += blen + 1 + len;
+		}
+		*wp = '\0';
+	} else {
+		output_list = xstrdup(argv[1]);
+	}
 
 	/* Set $out before evaluating the body */
 	picolSetVar(i, "out", output_list);
@@ -119,6 +231,7 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 	int ret = picolEval(i, body);
 
 	if (ret != PICOL_OK) {
+		free(output_list);
 		free(rule_inputs);
 		free(rule_command_template);
 		free(rule_depfile);
@@ -131,6 +244,7 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 		         i->current_file ? i->current_file : "<eval>",
 		         i->current_line, output_list);
 		picolSetResult(i, buf);
+		free(output_list);
 		free(rule_inputs);
 		free(rule_depfile);
 		return PICOL_ERR;
@@ -155,6 +269,7 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 		rule_command_template = NULL;
 
 		if (ret != PICOL_OK) {
+			free(output_list);
 			free(rule_inputs);
 			free(rule_depfile);
 			return ret;
@@ -198,6 +313,7 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 		}
 	}
 
+	free(output_list);
 	free(rule_inputs);
 	free(rule_command);
 	free(rule_depfile);
@@ -281,6 +397,28 @@ cmd_source(struct picolInterp *i, int argc, char **argv,
 	return ret;
 }
 
+/**
+ * builddir path
+ *
+ * Set the build directory prefix. Rule outputs and depfiles are
+ * automatically prefixed with this path. Inputs that reference
+ * known build outputs are resolved to the prefixed path.
+ * Also sets $BuildDir for use in Tcl expressions.
+ */
+static int
+cmd_builddir(struct picolInterp *i, int argc, char **argv,
+                    struct picolCmd *cmd)
+{
+	if (argc != 2) return picolArityErr(i, argv[0]);
+
+	// CLI --builddir takes precedence over Kilnfile builddir
+	if (!g_builddir_from_cli) {
+		kiln_set_builddir(argv[1]);
+		picolSetVar(i, "BuildDir", argv[1]);
+	}
+	return PICOL_OK;
+}
+
 /***************************************************************************
  * Register all kiln build commands
  **************************************************************************/
@@ -289,4 +427,5 @@ kiln_register_commands(struct picolInterp *i)
 {
 	picolRegisterCommand(i, "rule", cmd_rule);
 	picolRegisterCommand(i, "source", cmd_source);
+	picolRegisterCommand(i, "builddir", cmd_builddir);
 }

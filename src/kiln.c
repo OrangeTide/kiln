@@ -66,6 +66,7 @@ usage(void)
 	fprintf(stderr, "Usage: kiln [options] [target...]\n"
 	        "Options:\n"
 	        "  --triplet <triplet>  Set target triplet (skip cc -dumpmachine)\n"
+	        "  --builddir <path>    Set build directory prefix for rule outputs\n"
 	        "  -a, --action <name>  Run a built-in action (clean, status)\n"
 	        "  --lib <file.tcl>     Load a Tcl library before Kilnfiles\n"
 	        "  --no-stdlib          Skip loading the built-in standard library\n"
@@ -90,6 +91,7 @@ main(int argc, char **argv)
 
 	/* Parse command-line arguments */
 	const char *triplet = NULL;
+	const char *builddir = NULL;
 	const char *action = NULL;
 	const char *libs[MAX_LIBS];
 	int lib_count = 0;
@@ -101,6 +103,8 @@ main(int argc, char **argv)
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--triplet") == 0 && i + 1 < argc) {
 			triplet = argv[++i];
+		} else if (strcmp(argv[i], "--builddir") == 0 && i + 1 < argc) {
+			builddir = argv[++i];
 		} else if ((strcmp(argv[i], "-a") == 0 ||
 		            strcmp(argv[i], "--action") == 0) && i + 1 < argc) {
 			action = argv[++i];
@@ -162,6 +166,12 @@ main(int argc, char **argv)
 	}
 	picolSetVar(interp, "DryRun", dry_run ? "1" : "0");
 
+	/* Set builddir from CLI flag (overrides any Kilnfile builddir) */
+	if (builddir) {
+		kiln_set_builddir_cli(builddir);
+		picolSetVar(interp, "BuildDir", (char *)builddir);
+	}
+
 	/* Load standard library (unless --no-stdlib) */
 	if (!no_stdlib) {
 		// TODO: load embedded kiln.tcl when available
@@ -200,11 +210,18 @@ main(int argc, char **argv)
 		return 1;
 	}
 
-	/* Set up build config */
+	/* Set up build config.
+	 * Use builddir if set (from CLI or Kilnfile), otherwise default. */
 	char build_dir[4096];
 	char cdb_path[4096];
-	snprintf(build_dir, sizeof(build_dir), "build/%s", triplet);
-	snprintf(cdb_path, sizeof(cdb_path), "build/%s/kiln.cdb", triplet);
+	const char *bd = kiln_get_builddir();
+	if (bd && bd[0]) {
+		snprintf(build_dir, sizeof(build_dir), "%s", bd);
+		snprintf(cdb_path, sizeof(cdb_path), "%s/kiln.cdb", bd);
+	} else {
+		snprintf(build_dir, sizeof(build_dir), "build/%s", triplet);
+		snprintf(cdb_path, sizeof(cdb_path), "build/%s/kiln.cdb", triplet);
+	}
 
 	struct build_config cfg;
 	cfg.build_dir = build_dir;

@@ -1,0 +1,33 @@
+builddir build/$Triplet
+set cflags "-Wall -O2"
+
+# Shared library object
+rule greet.o {
+    inputs greet.c
+    depfile greet.d
+    command {cc $cflags -c -o $out $in -MMD -MF $depfile}
+}
+
+# hello program
+rule hello.o {
+    inputs hello.c
+    depfile hello.d
+    command {cc $cflags -c -o $out $in -MMD -MF $depfile}
+}
+
+rule hello {
+    inputs hello.o greet.o
+    command {cc -o $out $in}
+}
+
+# goodbye program
+rule goodbye.o {
+    inputs goodbye.c
+    depfile goodbye.d
+    command {cc $cflags -c -o $out $in -MMD -MF $depfile}
+}
+
+rule goodbye {
+    inputs goodbye.o greet.o
+    command {cc -o $out $in}
+}

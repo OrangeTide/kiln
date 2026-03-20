@@ -1,0 +1,38 @@
+builddir build/$Triplet
+set cc "cc"
+set cxx "c++"
+set cflags "-Wall -O2"
+set cxxflags "-Wall -O2"
+
+# C objects
+rule util.o {
+    inputs util.c
+    depfile util.d
+    command {$cc $cflags -c -o $out $in -MMD -MF $depfile}
+}
+
+rule main.o {
+    inputs main.c
+    depfile main.d
+    command {$cc $cflags -c -o $out $in -MMD -MF $depfile}
+}
+
+# C++ object
+rule printer.o {
+    inputs printer.cpp
+    depfile printer.d
+    command {$cxx $cxxflags -c -o $out $in -MMD -MF $depfile}
+}
+
+# Link with C++ driver since we have a .cpp file
+rule small-example {
+    inputs main.o util.o printer.o
+    command {$cxx -o $out $in}
+}
+
+# Generate documentation from source file @doc tags.
+# This demonstrates a custom non-compiler rule using a shell script.
+rule api-doc.txt {
+    inputs util.h util.c printer.cpp gendoc.sh
+    command {sh gendoc.sh util.h util.c printer.cpp > $out}
+}

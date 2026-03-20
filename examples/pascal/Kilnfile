@@ -1,0 +1,37 @@
+# Pascal example using Free Pascal Compiler (fpc).
+#
+# Usage:
+#   kiln Kilnfile
+#
+# Requires: fpc (Free Pascal Compiler)
+#   Debian/Ubuntu: apt install fpc
+#   Fedora:        dnf install fpc
+#   Arch:          pacman -S fpc
+#   macOS:         brew install fpc
+
+builddir build/$Triplet
+set fpc "fpc"
+set fpcflags "-O2"
+
+# Compile units first. fpc produces both a .ppu (unit interface)
+# and a .o (object code) for each unit.
+#
+# -FU directs compiled unit output (.ppu and .o) to the build dir.
+# -FE directs the final executable to the build dir.
+
+rule {greetunit.ppu greetunit.o} {
+    inputs greetunit.pas
+    command {$fpc $fpcflags -FU$BuildDir -FE$BuildDir greetunit.pas}
+}
+
+rule {mathunit.ppu mathunit.o} {
+    inputs mathunit.pas
+    command {$fpc $fpcflags -FU$BuildDir -FE$BuildDir mathunit.pas}
+}
+
+# Compile the main program. fpc links automatically when
+# compiling a program (as opposed to a unit).
+rule demo {
+    inputs demo.pas greetunit.ppu mathunit.ppu
+    command {$fpc $fpcflags -FU$BuildDir -FE$BuildDir -o$out demo.pas}
+}
