@@ -4,6 +4,7 @@
 #if defined(_WIN32)
 
 #include "platform.h"
+#include "xmalloc.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -99,14 +100,12 @@ kiln_dir_open(kiln_dir **d, const char *path)
 {
 	char pattern[4096];
 	snprintf(pattern, sizeof(pattern), "%s\\*", path);
-	kiln_dir *dir = malloc(sizeof(*dir));
-
-	if (!dir) return ERR;
+	kiln_dir *dir = xmalloc(sizeof(*dir));
 
 	dir->h = FindFirstFileA(pattern, &dir->data);
 
 	if (dir->h == INVALID_HANDLE_VALUE) {
-		free(dir);
+		free(dir);  // xmalloc succeeded, free on FindFirstFile failure
 		return ERR;
 	}
 
@@ -158,7 +157,7 @@ kiln_glob(const char *pattern, char ***results, int *count)
 	}
 
 	int cap = 16, n = 0;
-	char **res = malloc(sizeof(char *) * cap);
+	char **res = xmalloc(sizeof(char *) * cap);
 
 	do {
 		if (data.cFileName[0] == '.' &&
@@ -168,10 +167,10 @@ kiln_glob(const char *pattern, char ***results, int *count)
 
 		if (n >= cap) {
 			cap *= 2;
-			res = realloc(res, sizeof(char *) * cap);
+			res = xrealloc(res, sizeof(char *) * cap);
 		}
 
-		res[n++] = _strdup(data.cFileName);
+		res[n++] = xstrdup(data.cFileName);
 	} while (FindNextFileA(h, &data));
 
 	FindClose(h);
@@ -228,7 +227,7 @@ kiln_spawn(kiln_proc **proc, const char *cmd, const char *cwd)
 	CloseHandle(wr);
 	CloseHandle(pi.hThread);
 
-	kiln_proc *p = malloc(sizeof(*p));
+	kiln_proc *p = xmalloc(sizeof(*p));
 	p->process = pi.hProcess;
 	p->readpipe = rd;
 	p->outbuf = NULL;
@@ -250,7 +249,7 @@ kiln_wait(kiln_proc *proc, int *exitcode)
 
 			if (proc->outcap < 4096) proc->outcap = 4096;
 
-			proc->outbuf = realloc(proc->outbuf, proc->outcap);
+			proc->outbuf = xrealloc(proc->outbuf, proc->outcap);
 		}
 
 		memcpy(proc->outbuf + proc->outlen, buf, n);

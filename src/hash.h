@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 /* djb2 hashes len bytes of data using the standard seed 5381. */
 static inline uint32_t

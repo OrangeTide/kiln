@@ -77,48 +77,51 @@ dag_has_producer(struct dag *g, int file_id)
  * so all picol types, functions, and macros are already visible.
  */
 
-/* Per-rule state, accumulated during body evaluation */
-static char *rule_inputs;       /* space-separated input list */
-static char *rule_command;      /* command string */
-static char *rule_depfile;      /* depfile path or NULL */
+// Per-rule state, accumulated during body evaluation.
+// A single static instance is used since rules are evaluated sequentially.
+struct rule_state {
+	char *inputs;           // space-separated input list
+	char *command;          // final expanded command string
+	char *command_template; // raw template, evaluated after body
+	char *depfile;          // depfile path or NULL
+};
+
+static struct rule_state g_rule;
+
+static void
+rule_state_clear(struct rule_state *rs)
+{
+	rs->inputs = NULL;
+	rs->command = NULL;
+	rs->command_template = NULL;
+	rs->depfile = NULL;
+}
+
+static void
+rule_state_free(struct rule_state *rs)
+{
+	free(rs->inputs);
+	free(rs->command);
+	free(rs->command_template);
+	free(rs->depfile);
+	rule_state_clear(rs);
+}
 
 static int
 cmd_rule_inputs(struct picolInterp *i, int argc,
-                       char **argv, struct picolCmd *cmd)
+                char **argv, struct picolCmd *cmd)
 {
+	(void)cmd;
 	if (argc < 2) return picolArityErr(i, argv[0]);
 
-	// First pass: compute total size (with possible builddir prefixing)
-	// For each input, if builddir is set and the prefixed name is a known
-	// output in the DAG, use the prefixed name. Otherwise use as-is.
-	size_t total = 0;
+	// Single pass: resolve each input and append with xrealloc growth
 	for (int j = 1; j < argc; j++) {
-		if (g_builddir && g_builddir[0]) {
-			char *prefixed = builddir_prefix(argv[j]);
-			int fid = dag_find_file(g_dag, prefixed);
-			if (fid >= 0 && dag_has_producer(g_dag, fid)) {
-				total += strlen(prefixed) + 1;
-			} else {
-				total += strlen(argv[j]) + 1;
-			}
-			free(prefixed);
-		} else {
-			total += strlen(argv[j]) + 1;
-		}
-	}
-
-	size_t existing = rule_inputs ? strlen(rule_inputs) : 0;
-	rule_inputs = realloc(rule_inputs, existing + total + 1);
-	char *p = rule_inputs + existing;
-
-	// Second pass: build the input list with resolved names
-	for (int j = 1; j < argc; j++) {
-		if (existing > 0 || j > 1) *p++ = ' ';
-
 		char *resolved = NULL;
+
 		if (g_builddir && g_builddir[0]) {
 			char *prefixed = builddir_prefix(argv[j]);
 			int fid = dag_find_file(g_dag, prefixed);
+
 			if (fid >= 0 && dag_has_producer(g_dag, fid))
 				resolved = prefixed;
 			else
@@ -126,41 +129,46 @@ cmd_rule_inputs(struct picolInterp *i, int argc,
 		}
 
 		const char *name = resolved ? resolved : argv[j];
-		size_t l = strlen(name);
-		memcpy(p, name, l);
-		p += l;
+		size_t nlen = strlen(name);
+		size_t existing = g_rule.inputs ? strlen(g_rule.inputs) : 0;
+		int need_sep = (existing > 0) ? 1 : 0;
+
+		g_rule.inputs = xrealloc(g_rule.inputs,
+		                         existing + need_sep + nlen + 1);
+
+		if (need_sep)
+			g_rule.inputs[existing++] = ' ';
+
+		memcpy(g_rule.inputs + existing, name, nlen + 1);
 		free(resolved);
 	}
 
-	*p = '\0';
-
-	/* Update $in variable */
-	picolSetVar(i, "in", rule_inputs);
+	picolSetVar(i, "in", g_rule.inputs);
 	return PICOL_OK;
 }
 
-static char *rule_command_template;  /* raw template, evaluated after body */
-
 static int
 cmd_rule_command(struct picolInterp *i, int argc,
-                        char **argv, struct picolCmd *cmd)
+                 char **argv, struct picolCmd *cmd)
 {
+	(void)cmd;
 	if (argc != 2) return picolArityErr(i, argv[0]);
 
-	free(rule_command_template);
-	rule_command_template = xstrdup(argv[1]);
+	free(g_rule.command_template);
+	g_rule.command_template = xstrdup(argv[1]);
 	return PICOL_OK;
 }
 
 static int
 cmd_rule_depfile(struct picolInterp *i, int argc,
-                        char **argv, struct picolCmd *cmd)
+                 char **argv, struct picolCmd *cmd)
 {
+	(void)cmd;
 	if (argc != 2) return picolArityErr(i, argv[0]);
 
-	free(rule_depfile);
-	rule_depfile = builddir_prefix(argv[1]);
-	picolSetVar(i, "depfile", rule_depfile);
+	free(g_rule.depfile);
+	g_rule.depfile = builddir_prefix(argv[1]);
+	picolSetVar(i, "depfile", g_rule.depfile);
 	return PICOL_OK;
 }
 
@@ -174,21 +182,19 @@ cmd_rule_depfile(struct picolInterp *i, int argc,
  */
 static int
 cmd_rule(struct picolInterp *i, int argc, char **argv,
-                 struct picolCmd *cmd)
+         struct picolCmd *cmd)
 {
+	(void)cmd;
 	if (argc != 3) return picolArityErr(i, argv[0]);
 
 	char *body = argv[2];
 
-	/* Initialize per-rule state */
-	rule_inputs = NULL;
-	rule_command = NULL;
-	rule_command_template = NULL;
-	rule_depfile = NULL;
+	rule_state_clear(&g_rule);
 
 	// Build prefixed output list when builddir is set.
 	// Each output in the list gets $builddir/ prepended.
 	char *output_list;
+
 	if (g_builddir && g_builddir[0]) {
 		const char *p = argv[1];
 		const char *start;
@@ -197,14 +203,17 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 
 		// First pass: compute size
 		const char *p2 = argv[1];
-		while (list_next(&p2, &start, &len)) {
+
+		while (list_next(&p2, &start, &len))
 			total += strlen(g_builddir) + 1 + len + 1;
-		}
+
 		output_list = xmalloc(total + 1);
 		char *wp = output_list;
 		int first = 1;
+
 		while (list_next(&p, &start, &len)) {
 			if (!first) *wp++ = ' ';
+
 			first = 0;
 			size_t blen = strlen(g_builddir);
 			memcpy(wp, g_builddir, blen);
@@ -212,78 +221,72 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 			memcpy(wp + blen + 1, start, len);
 			wp += blen + 1 + len;
 		}
+
 		*wp = '\0';
 	} else {
 		output_list = xstrdup(argv[1]);
 	}
 
-	/* Set $out before evaluating the body */
+	// Set $out before evaluating the body
 	picolSetVar(i, "out", output_list);
 	picolSetVar(i, "in", "");
 	picolSetVar(i, "depfile", "");
 
-	/* Register sub-commands for the body */
+	// Register sub-commands for the body
 	picolRegisterCommand(i, "inputs", cmd_rule_inputs);
 	picolRegisterCommand(i, "command", cmd_rule_command);
 	picolRegisterCommand(i, "depfile", cmd_rule_depfile);
 
-	/* Evaluate the body - this collects inputs, depfile, and command template */
+	// Evaluate the body -- this collects inputs, depfile, and command template
 	int ret = picolEval(i, body);
 
 	if (ret != PICOL_OK) {
 		free(output_list);
-		free(rule_inputs);
-		free(rule_command_template);
-		free(rule_depfile);
+		rule_state_free(&g_rule);
 		return ret;
 	}
 
-	if (!rule_command_template) {
+	if (!g_rule.command_template) {
 		char buf[256];
 		snprintf(buf, sizeof(buf), "%s:%d: rule '%s': no command specified",
 		         i->current_file ? i->current_file : "<eval>",
 		         i->current_line, output_list);
 		picolSetResult(i, buf);
 		free(output_list);
-		free(rule_inputs);
-		free(rule_depfile);
+		rule_state_free(&g_rule);
 		return PICOL_ERR;
 	}
 
-	/* Evaluate the command template with all variables ($out, $in, $depfile)
-	 * now set. The template was passed in braces {}, so Tcl didn't substitute
-	 * it yet. We wrap it as: set _ "..." to trigger substitution now. */
+	// Evaluate the command template with all variables ($out, $in, $depfile)
+	// now set. The template was passed in braces {}, so Tcl didn't substitute
+	// it yet. We wrap it as: set _ "..." to trigger substitution now.
 	{
-		/* Need to escape any double-quotes or backslashes in the template
-		 * for safe wrapping. Easier: use picolEval on a subst-like approach.
-		 * Build: set _ "<template>" */
-		size_t tlen = strlen(rule_command_template);
+		size_t tlen = strlen(g_rule.command_template);
 		char *eval_cmd = xmalloc(tlen + 9);
 		memcpy(eval_cmd, "set _ \"", 7);
-		memcpy(eval_cmd + 7, rule_command_template, tlen);
+		memcpy(eval_cmd + 7, g_rule.command_template, tlen);
 		eval_cmd[7 + tlen] = '"';
 		eval_cmd[7 + tlen + 1] = '\0';
 		ret = picolEval(i, eval_cmd);
 		free(eval_cmd);
-		free(rule_command_template);
-		rule_command_template = NULL;
+		free(g_rule.command_template);
+		g_rule.command_template = NULL;
 
 		if (ret != PICOL_OK) {
 			free(output_list);
-			free(rule_inputs);
-			free(rule_depfile);
+			rule_state_free(&g_rule);
 			return ret;
 		}
 
-		rule_command = xstrdup(i->result);
+		g_rule.command = xstrdup(i->result);
 	}
 
-	/* Build DAG nodes */
-	int cmd_id = dag_add_cmd(g_dag, rule_command, rule_depfile);
+	// Build DAG nodes
+	int cmd_id = dag_add_cmd(g_dag, g_rule.command, g_rule.depfile);
 
-	/* Parse and add input file nodes -> edges to command */
-	if (rule_inputs) {
-		const char *p = rule_inputs;
+	// Parse and add input file nodes -> edges to command
+	if (g_rule.inputs) {
+		const char *p = g_rule.inputs;
 		const char *start;
 		int len;
 
@@ -297,7 +300,7 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 		}
 	}
 
-	/* Parse and add output file nodes - command -> edges to outputs */
+	// Parse and add output file nodes -- command -> edges to outputs
 	{
 		const char *p = output_list;
 		const char *start;
@@ -314,9 +317,7 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 	}
 
 	free(output_list);
-	free(rule_inputs);
-	free(rule_command);
-	free(rule_depfile);
+	rule_state_free(&g_rule);
 	return PICOL_OK;
 }
 
@@ -331,6 +332,7 @@ static int
 cmd_source(struct picolInterp *i, int argc, char **argv,
                    struct picolCmd *cmd)
 {
+	(void)cmd;
 	if (argc != 2) return picolArityErr(i, argv[0]);
 
 	char *filename = argv[1];
@@ -409,6 +411,7 @@ static int
 cmd_builddir(struct picolInterp *i, int argc, char **argv,
                     struct picolCmd *cmd)
 {
+	(void)cmd;
 	if (argc != 2) return picolArityErr(i, argv[0]);
 
 	// CLI --builddir takes precedence over Kilnfile builddir

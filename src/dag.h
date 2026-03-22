@@ -48,6 +48,12 @@ struct dag_node {
 	int visited;        /* 0=unvisited, 1=in-progress, 2=done */
 };
 
+/* dag_htab_entry is a slot in the file-name hash table. */
+struct dag_htab_entry {
+	const char *key;    /* points into the dag_node's name (not owned) */
+	int node_id;        /* -1 = empty slot */
+};
+
 /* dag holds the complete dependency graph and its topological ordering. */
 struct dag {
 	struct dag_node **nodes;
@@ -56,6 +62,11 @@ struct dag {
 
 	int *order;         /* topo-sorted node indices */
 	int order_count;
+
+	/* File name -> node ID hash table (open-addressing, linear probe) */
+	struct dag_htab_entry *htab;
+	int htab_cap;
+	int htab_count;
 };
 
 /* dag_init initializes an empty graph. */

@@ -1,0 +1,391 @@
+#!/bin/sh
+#
+# kiln test suite — smoke and integration tests for CI/CD.
+# Usage: sh test/run.sh [path-to-kiln]
+#
+set -e
+
+KILN="${1:-./kiln}"
+PASS=0
+FAIL=0
+TMPDIR=$(mktemp -d)
+
+cleanup() { rm -rf "$TMPDIR"; }
+trap cleanup EXIT
+
+pass() { PASS=$((PASS + 1)); printf "  PASS: %s\n" "$1"; }
+fail() { FAIL=$((FAIL + 1)); printf "  FAIL: %s\n" "$1"; }
+
+check() {
+    # check "name" "actual" "expected"
+    if [ "$2" = "$3" ]; then
+        pass "$1"
+    else
+        fail "$1"
+        printf "    expected: %s\n    got:      %s\n" "$3" "$2"
+    fi
+}
+
+check_contains() {
+    # check_contains "name" "haystack" "needle"
+    case "$2" in
+        *"$3"*) pass "$1" ;;
+        *) fail "$1"; printf "    expected to contain: %s\n    got: %s\n" "$3" "$2" ;;
+    esac
+}
+
+check_not_contains() {
+    case "$2" in
+        *"$3"*) fail "$1"; printf "    expected NOT to contain: %s\n    got: %s\n" "$3" "$2" ;;
+        *) pass "$1" ;;
+    esac
+}
+
+check_file_exists() {
+    if [ -f "$2" ]; then pass "$1"; else fail "$1"; printf "    missing: %s\n" "$2"; fi
+}
+
+check_file_missing() {
+    if [ ! -f "$2" ]; then pass "$1"; else fail "$1"; printf "    should not exist: %s\n" "$2"; fi
+}
+
+# Resolve to absolute path
+KILN=$(cd "$(dirname "$KILN")" && pwd)/$(basename "$KILN")
+
+# =========================================================================
+printf "=== CLI ===\n"
+# =========================================================================
+
+OUT=$("$KILN" --help 2>&1 || true)
+check_contains "help flag" "$OUT" "Usage: kiln"
+
+OUT=$("$KILN" --triplet test-triple /dev/null 2>&1 || true)
+check_not_contains "triplet override" "$OUT" "cc -dumpmachine failed"
+
+OUT=$("$KILN" --bogus 2>&1 || true)
+check_contains "unknown option" "$OUT" "unknown option"
+
+# =========================================================================
+printf "=== Tcl extensions ===\n"
+# =========================================================================
+
+T="$TMPDIR/ext"
+mkdir -p "$T"
+cat > "$T/test.tcl" <<'TCLEOF'
+# lindex / llength
+set list "alpha bravo charlie"
+puts [llength $list]
+puts [lindex $list 0]
+puts [lindex $list 2]
+
+# brace-quoted elements
+set list2 "{hello world} foo {bar baz}"
+puts [llength $list2]
+puts [lindex $list2 0]
+
+# file commands
+puts [file dirname src/lib/foo.c]
+puts [file tail src/lib/foo.c]
+puts [file extension src/lib/foo.c]
+puts [file rootname src/lib/foo.c]
+TCLEOF
+
+OUT=$("$KILN" --triplet t "$T/test.tcl" 2>&1)
+check "llength" "$(echo "$OUT" | sed -n '1p')" "3"
+check "lindex 0" "$(echo "$OUT" | sed -n '2p')" "alpha"
+check "lindex 2" "$(echo "$OUT" | sed -n '3p')" "charlie"
+check "llength brace" "$(echo "$OUT" | sed -n '4p')" "3"
+check "lindex brace elem" "$(echo "$OUT" | sed -n '5p')" "hello world"
+check "file dirname" "$(echo "$OUT" | sed -n '6p')" "src/lib"
+check "file tail" "$(echo "$OUT" | sed -n '7p')" "foo.c"
+check "file extension" "$(echo "$OUT" | sed -n '8p')" ".c"
+check "file rootname" "$(echo "$OUT" | sed -n '9p')" "src/lib/foo"
+
+# =========================================================================
+printf "=== Error reporting ===\n"
+# =========================================================================
+
+T="$TMPDIR/err"
+mkdir -p "$T"
+
+cat > "$T/test.tcl" <<'TCLEOF'
+set x 1
+set y 2
+badcmd foo
+TCLEOF
+
+OUT=$("$KILN" --triplet t "$T/test.tcl" 2>&1 || true)
+check_contains "error file:line" "$OUT" "test.tcl:3:"
+check_contains "error command name" "$OUT" "badcmd"
+
+cat > "$T/test2.tcl" <<'TCLEOF'
+set x 1
+
+# comment
+set y 2
+
+# another comment
+
+puts $noexist
+TCLEOF
+
+OUT=$("$KILN" --triplet t "$T/test2.tcl" 2>&1 || true)
+check_contains "error line with comments" "$OUT" "test2.tcl:8:"
+
+# =========================================================================
+printf "=== Source command ===\n"
+# =========================================================================
+
+T="$TMPDIR/source"
+mkdir -p "$T/lib"
+
+cat > "$T/lib/defs.tcl" <<'TCLEOF'
+set GREETING hello
+TCLEOF
+
+cat > "$T/main.tcl" <<'TCLEOF'
+set SourcePath LIB_PATH_PLACEHOLDER
+source defs.tcl
+puts $GREETING
+TCLEOF
+# Patch in the actual path
+sed -i "s|LIB_PATH_PLACEHOLDER|$T/lib|" "$T/main.tcl"
+
+OUT=$("$KILN" --triplet t "$T/main.tcl" 2>&1)
+check_contains "source PATH search" "$OUT" "hello"
+
+OUT=$("$KILN" --triplet t -n "$T/main.tcl" 2>&1)
+check_contains "source with dry-run" "$OUT" "hello"
+
+# Source error in sourced file
+cat > "$T/lib/bad.tcl" <<'TCLEOF'
+set a 1
+badcmd
+TCLEOF
+
+cat > "$T/err.tcl" <<'TCLEOF'
+set SourcePath LIB_PATH_PLACEHOLDER
+source bad.tcl
+TCLEOF
+sed -i "s|LIB_PATH_PLACEHOLDER|$T/lib|" "$T/err.tcl"
+
+OUT=$("$KILN" --triplet t "$T/err.tcl" 2>&1 || true)
+check_contains "error in sourced file" "$OUT" "bad.tcl:2:"
+
+# =========================================================================
+printf "=== DAG and cycle detection ===\n"
+# =========================================================================
+
+T="$TMPDIR/dag"
+mkdir -p "$T"
+
+cat > "$T/cycle.tcl" <<'TCLEOF'
+rule a.o {
+    inputs b.o
+    command {cp $in $out}
+}
+rule b.o {
+    inputs a.o
+    command {cp $in $out}
+}
+TCLEOF
+
+OUT=$("$KILN" --triplet t "$T/cycle.tcl" 2>&1 || true)
+check_contains "cycle detected" "$OUT" "dependency cycle"
+
+# Multiple outputs
+cat > "$T/multi.tcl" <<'TCLEOF'
+rule {parse.c parse.h} {
+    inputs parse.y
+    command {bison -d -o $out $in}
+}
+TCLEOF
+
+OUT=$("$KILN" --triplet t -n "$T/multi.tcl" 2>&1)
+check_contains "multi-output rule" "$OUT" "bison"
+
+# =========================================================================
+printf "=== Build: clean build ===\n"
+# =========================================================================
+
+T="$TMPDIR/build"
+mkdir -p "$T"
+
+cat > "$T/main.c" <<'EOF'
+#include <stdio.h>
+#include "util.h"
+int main(void) { printf("%d\n", add(2, 3)); return 0; }
+EOF
+cat > "$T/util.c" <<'EOF'
+#include "util.h"
+int add(int a, int b) { return a + b; }
+EOF
+cat > "$T/util.h" <<'EOF'
+int add(int a, int b);
+EOF
+cat > "$T/Kilnfile" <<'EOF'
+rule main.o {
+    inputs main.c
+    depfile main.d
+    command {cc -c -o $out $in -MMD -MF $depfile}
+}
+rule util.o {
+    inputs util.c
+    depfile util.d
+    command {cc -c -o $out $in -MMD -MF $depfile}
+}
+rule hello {
+    inputs {main.o util.o}
+    command {cc -o $out $in}
+}
+EOF
+
+cd "$T"
+
+OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+check_contains "clean build count" "$OUT" "built 3 targets"
+check_file_exists "clean build: main.o" "$T/main.o"
+check_file_exists "clean build: util.o" "$T/util.o"
+check_file_exists "clean build: hello" "$T/hello"
+
+RESULT=$("$T/hello")
+check "clean build output" "$RESULT" "5"
+
+# =========================================================================
+printf "=== Build: incremental no-op ===\n"
+# =========================================================================
+
+OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+check_contains "no-op rebuild" "$OUT" "nothing to do"
+
+# =========================================================================
+printf "=== Build: touch without content change ===\n"
+# =========================================================================
+
+sleep 1  # ensure mtime differs
+touch "$T/util.c"
+
+OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+check_contains "touch no-op" "$OUT" "nothing to do"
+
+# =========================================================================
+printf "=== Build: content change cascades ===\n"
+# =========================================================================
+
+cat > "$T/util.c" <<'EOF'
+#include "util.h"
+int add(int a, int b) { return a + b + 10; }
+EOF
+
+OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+check_contains "cascade: util.o rebuilt" "$OUT" "cc -c -o util.o"
+check_contains "cascade: hello relinked" "$OUT" "cc -o hello"
+check_not_contains "cascade: main.o skipped" "$OUT" "cc -c -o main.o"
+check_contains "cascade: count" "$OUT" "built 2 targets"
+
+RESULT=$("$T/hello")
+check "cascade output" "$RESULT" "15"
+
+# =========================================================================
+printf "=== Build: header change via depfile ===\n"
+# =========================================================================
+
+cat > "$T/util.h" <<'EOF'
+int add(int a, int b);
+/* force rebuild */
+EOF
+
+OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+check_contains "header: main.o rebuilt" "$OUT" "cc -c -o main.o"
+check_contains "header: util.o rebuilt" "$OUT" "cc -c -o util.o"
+check_contains "header: hello relinked" "$OUT" "cc -o hello"
+check_contains "header: count" "$OUT" "built 3 targets"
+
+# =========================================================================
+printf "=== Build: command string change ===\n"
+# =========================================================================
+
+# Change CFLAGS in the rule
+cat > "$T/Kilnfile" <<'EOF'
+rule main.o {
+    inputs main.c
+    depfile main.d
+    command {cc -c -O2 -o $out $in -MMD -MF $depfile}
+}
+rule util.o {
+    inputs util.c
+    depfile util.d
+    command {cc -c -O2 -o $out $in -MMD -MF $depfile}
+}
+rule hello {
+    inputs {main.o util.o}
+    command {cc -o $out $in}
+}
+EOF
+
+OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+check_contains "cmd change: recompile" "$OUT" "-O2"
+check_contains "cmd change: count" "$OUT" "built 3 targets"
+
+# Restore and verify no-op
+cat > "$T/Kilnfile" <<'EOF'
+rule main.o {
+    inputs main.c
+    depfile main.d
+    command {cc -c -O2 -o $out $in -MMD -MF $depfile}
+}
+rule util.o {
+    inputs util.c
+    depfile util.d
+    command {cc -c -O2 -o $out $in -MMD -MF $depfile}
+}
+rule hello {
+    inputs {main.o util.o}
+    command {cc -o $out $in}
+}
+EOF
+
+OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+check_contains "cmd same: no-op" "$OUT" "nothing to do"
+
+# =========================================================================
+printf "=== Build: delete outputs on failure ===\n"
+# =========================================================================
+
+T2="$TMPDIR/fail"
+mkdir -p "$T2"
+
+echo "syntax error!!!" > "$T2/bad.c"
+touch "$T2/bad.o"
+
+cat > "$T2/Kilnfile" <<'EOF'
+rule bad.o {
+    inputs bad.c
+    command {cc -c -o $out $in}
+}
+EOF
+
+cd "$T2"
+OUT=$("$KILN" --triplet test Kilnfile 2>&1 || true)
+check_contains "failure message" "$OUT" "command failed"
+check_file_missing "output deleted on fail" "$T2/bad.o"
+
+# =========================================================================
+printf "=== Build: dry-run ===\n"
+# =========================================================================
+
+cd "$T"
+rm -f "$T/main.o" "$T/util.o" "$T/hello" "$T/main.d" "$T/util.d"
+rm -rf "$T/build"
+
+OUT=$("$KILN" --triplet test -n Kilnfile 2>&1)
+check_contains "dry-run shows commands" "$OUT" "cc -c"
+check_file_missing "dry-run: no main.o" "$T/main.o"
+check_file_missing "dry-run: no hello" "$T/hello"
+
+# =========================================================================
+printf "\n=== Results ===\n"
+printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
+# =========================================================================
+
+[ "$FAIL" -eq 0 ]

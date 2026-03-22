@@ -3,6 +3,7 @@
  * Licensed under MIT OR Apache-2.0 */
 
 #include "depfile.h"
+#include "xmalloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,7 +21,7 @@ depfile_parse(const char *path, int *count)
 	fseek(fp, 0, SEEK_END);
 	long sz = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
-	char *buf = malloc(sz + 1);
+	char *buf = xmalloc(sz + 1);
 	size_t n = fread(buf, 1, sz, fp);
 	buf[n] = '\0';
 	fclose(fp);
@@ -37,7 +38,7 @@ depfile_parse(const char *path, int *count)
 	p++; /* skip ':' */
 
 	int cap = 32, cnt = 0;
-	char **deps = malloc(sizeof(char *) * cap);
+	char **deps = xmalloc(sizeof(char *) * cap);
 
 	while (*p) {
 		/* Skip whitespace and line continuations */
@@ -67,7 +68,7 @@ depfile_parse(const char *path, int *count)
 		if (p > start) {
 			int len = p - start;
 			/* Unescape backslash-space */
-			char *dep = malloc(len + 1);
+			char *dep = xmalloc(len + 1);
 			char *d = dep;
 
 			for (char *s = start; s < p; s++) {
@@ -83,7 +84,7 @@ depfile_parse(const char *path, int *count)
 
 			if (cnt >= cap) {
 				cap *= 2;
-				deps = realloc(deps, sizeof(char *) * cap);
+				deps = xrealloc(deps, sizeof(char *) * cap);
 			}
 
 			deps[cnt++] = dep;

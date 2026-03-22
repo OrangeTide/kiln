@@ -6,6 +6,7 @@
 #include "cdb.h"
 #include "hash.h"
 #include "mapfile.h"
+#include "xmalloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -108,7 +109,7 @@ cdb_writer_init(struct cdb_writer *w)
 {
 	w->capacity = 256;
 	w->count = 0;
-	w->records = malloc(sizeof(struct cdb_record) * w->capacity);
+	w->records = xmalloc(sizeof(struct cdb_record) * w->capacity);
 	w->data = NULL;
 	w->data_len = 0;
 	w->data_cap = 0;
@@ -132,7 +133,7 @@ cdb_writer_add(struct cdb_writer *w, const void *key,
 {
 	if (w->count >= w->capacity) {
 		w->capacity *= 2;
-		w->records = realloc(w->records,
+		w->records = xrealloc(w->records,
 			sizeof(struct cdb_record) * w->capacity);
 	}
 
@@ -140,9 +141,9 @@ cdb_writer_add(struct cdb_writer *w, const void *key,
 	r->hash = djb2(key, klen);
 	r->klen = klen;
 	r->vlen = vlen;
-	r->key = malloc(klen);
+	r->key = xmalloc(klen);
 	memcpy(r->key, key, klen);
-	r->val = malloc(vlen);
+	r->val = xmalloc(vlen);
 	memcpy(r->val, val, vlen);
 	r->offset = 0; /* filled during finish */
 }
@@ -189,7 +190,8 @@ cdb_writer_finish(struct cdb_writer *w, const char *path)
 
 		/* Build hash table for this slot */
 		size_t tsize = table_len[t] * 8;
-		unsigned char *table = calloc(1, tsize);
+		unsigned char *table = xmalloc(tsize);
+		memset(table, 0, tsize);
 
 		for (int i = 0; i < w->count; i++) {
 			if ((w->records[i].hash & 255) != (uint32_t)t)

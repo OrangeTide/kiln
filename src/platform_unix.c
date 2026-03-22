@@ -4,6 +4,7 @@
 #if !defined(_WIN32)
 
 #include "platform.h"
+#include "xmalloc.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -89,14 +90,12 @@ struct kiln_dir {
 int
 kiln_dir_open(kiln_dir **d, const char *path)
 {
-	kiln_dir *dir = malloc(sizeof(*dir));
-
-	if (!dir) return ERR;
+	kiln_dir *dir = xmalloc(sizeof(*dir));
 
 	dir->dp = opendir(path);
 
 	if (!dir->dp) {
-		free(dir);
+		free(dir);  // xmalloc succeeded, free on opendir failure
 		return ERR;
 	}
 
@@ -146,15 +145,10 @@ kiln_glob(const char *pattern, char ***results, int *count)
 	if (ret != 0) return ERR;
 
 	*count = (int)g.gl_pathc;
-	*results = malloc(sizeof(char *) * g.gl_pathc);
-
-	if (!*results) {
-		globfree(&g);
-		return ERR;
-	}
+	*results = xmalloc(sizeof(char *) * g.gl_pathc);
 
 	for (size_t i = 0; i < g.gl_pathc; i++)
-		(*results)[i] = strdup(g.gl_pathv[i]);
+		(*results)[i] = xstrdup(g.gl_pathv[i]);
 
 	globfree(&g);
 	return OK;
@@ -206,7 +200,7 @@ kiln_spawn(kiln_proc **proc, const char *cmd, const char *cwd)
 
 	close(pipefd[1]);
 
-	kiln_proc *p = malloc(sizeof(*p));
+	kiln_proc *p = xmalloc(sizeof(*p));
 	p->pid = pid;
 	p->pipefd = pipefd[0];
 	p->outbuf = NULL;
@@ -229,7 +223,7 @@ kiln_wait(kiln_proc *proc, int *exitcode)
 
 			if (proc->outcap < 4096) proc->outcap = 4096;
 
-			proc->outbuf = realloc(proc->outbuf, proc->outcap);
+			proc->outbuf = xrealloc(proc->outbuf, proc->outcap);
 		}
 
 		memcpy(proc->outbuf + proc->outlen, buf, n);

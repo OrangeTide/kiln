@@ -9,6 +9,7 @@
 #include "platform.h"
 #include "dag.h"
 #include "term.h"
+#include "xmalloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -176,7 +177,7 @@ store_depfile_deps(struct cdb_writer *new_db, struct cdb *old_db,
 	for (int i = 0; i < dep_count; i++)
 		total += strlen(deps[i]) + 1;
 
-	char *val = malloc(total);
+	char *val = xmalloc(total);
 	char *p = val;
 
 	for (int i = 0; i < dep_count; i++) {
@@ -350,6 +351,145 @@ build_clean(struct dag *g, struct build_config *cfg)
 	return 0;
 }
 
+// Find the first FILE output of a command node.
+static const char *
+first_file_output(struct dag *g, struct dag_node *n)
+{
+	struct dag_edge *e = n->outputs;
+
+	while (e) {
+		if (g->nodes[e->node_id]->type == NODE_FILE)
+			return g->nodes[e->node_id]->name;
+
+		e = e->next;
+	}
+
+	return NULL;
+}
+
+// Check whether a command node needs to be rebuilt.
+// Sets *out_first_output and *out_cmd_hash for use by the caller.
+// When not dirty, carries forward the old CDB state into new_db.
+// Returns 1 if dirty, 0 if clean.
+static int
+node_is_dirty(struct dag *g, struct dag_node *n,
+              struct cdb *old_db, int have_old_db,
+              struct cdb_writer *new_db,
+              const char **out_first_output, uint32_t *out_cmd_hash)
+{
+	uint32_t cmd_hash = hash_string(n->command);
+	const char *first_output = first_file_output(g, n);
+
+	*out_first_output = first_output;
+	*out_cmd_hash = cmd_hash;
+
+	// Check if command string changed
+	int cmd_dirty = 0;
+
+	if (first_output && have_old_db) {
+		char key[4096];
+		snprintf(key, sizeof(key), "cmd:%s", first_output);
+		size_t vlen;
+		const void *old_val = cdb_find(old_db, key, strlen(key), &vlen);
+
+		if (!old_val || vlen != sizeof(uint32_t)) {
+			cmd_dirty = 1;
+		} else {
+			uint32_t old_hash;
+			memcpy(&old_hash, old_val, sizeof(old_hash));
+
+			if (old_hash != cmd_hash) cmd_dirty = 1;
+		}
+	} else {
+		cmd_dirty = 1; // No old DB or no output -- always build
+	}
+
+	// Check explicit inputs.
+	// Two conditions make an input dirty:
+	// 1. The file's stat/hash changed on disk
+	// 2. The file was produced by a command that ran this build
+	int input_dirty = 0;
+	{
+		struct dag_edge *e = n->inputs;
+
+		while (e) {
+			struct dag_node *in = g->nodes[e->node_id];
+
+			if (in->type == NODE_FILE) {
+				// Check if this file was just rebuilt
+				struct dag_edge *pe = in->inputs;
+
+				while (pe) {
+					struct dag_node *producer = g->nodes[pe->node_id];
+
+					if (producer->type == NODE_CMD &&
+					    producer->state == STATE_BUILDING) {
+						input_dirty = 1;
+						break;
+					}
+
+					pe = pe->next;
+				}
+
+				// Check stat/hash if we have an old DB
+				if (!input_dirty && !cmd_dirty && have_old_db) {
+					if (file_is_dirty(in->name, old_db, new_db))
+						input_dirty = 1;
+				}
+			}
+
+			if (input_dirty) break;
+
+			e = e->next;
+		}
+	}
+
+	// Check implicit deps (from previous depfile)
+	int implicit_dirty = 0;
+
+	if (!cmd_dirty && !input_dirty && have_old_db && first_output) {
+		implicit_dirty = implicit_deps_dirty(first_output, old_db, new_db);
+	}
+
+	// Check if outputs exist
+	int output_missing = 0;
+	{
+		struct dag_edge *e = n->outputs;
+
+		while (e) {
+			struct dag_node *out = g->nodes[e->node_id];
+
+			if (out->type == NODE_FILE) {
+				struct kiln_stat st;
+
+				if (kiln_stat_file(out->name, &st) != OK)
+					output_missing = 1;
+			}
+
+			e = e->next;
+		}
+	}
+
+	int dirty = cmd_dirty || input_dirty || implicit_dirty || output_missing;
+
+	if (!dirty && first_output) {
+		// Carry forward command hash
+		char key[4096];
+		snprintf(key, sizeof(key), "cmd:%s", first_output);
+		cdb_writer_add(new_db, key, strlen(key),
+		               &cmd_hash, sizeof(cmd_hash));
+		// Carry forward depfile deps
+		snprintf(key, sizeof(key), "deps:%s", first_output);
+		size_t vlen;
+		const void *val = cdb_find(old_db, key, strlen(key), &vlen);
+
+		if (val && vlen > 0)
+			cdb_writer_add(new_db, key, strlen(key), val, vlen);
+	}
+
+	return dirty;
+}
+
 int
 build_execute(struct dag *g, struct build_config *cfg)
 {
@@ -383,129 +523,12 @@ build_execute(struct dag *g, struct build_config *cfg)
 
 		cmd_index++;
 
-		/* Check if command string changed */
-		int cmd_dirty = 0;
-		uint32_t cmd_hash = hash_string(n->command);
+		const char *first_output;
+		uint32_t cmd_hash;
 
-		/* Use first output as the key for command hash lookup */
-		const char *first_output = NULL;
-		{
-			struct dag_edge *e = n->outputs;
-
-			while (e) {
-				if (g->nodes[e->node_id]->type == NODE_FILE) {
-					first_output = g->nodes[e->node_id]->name;
-					break;
-				}
-
-				e = e->next;
-			}
-		}
-
-		if (first_output && have_old_db) {
-			char key[4096];
-			snprintf(key, sizeof(key), "cmd:%s", first_output);
-			size_t vlen;
-			const void *old_val = cdb_find(&old_db, key, strlen(key), &vlen);
-
-			if (!old_val || vlen != sizeof(uint32_t)) {
-				cmd_dirty = 1;
-			} else {
-				uint32_t old_hash;
-				memcpy(&old_hash, old_val, sizeof(old_hash));
-
-				if (old_hash != cmd_hash) cmd_dirty = 1;
-			}
-		} else {
-			cmd_dirty = 1; /* No old DB or no output - always build */
-		}
-
-		/* Check explicit inputs.
-		 * Two conditions make an input dirty:
-		 * 1. The file's stat/hash changed on disk
-		 * 2. The file was produced by a command that ran this build */
-		int input_dirty = 0;
-		{
-			struct dag_edge *e = n->inputs;
-
-			while (e) {
-				struct dag_node *in = g->nodes[e->node_id];
-
-				if (in->type == NODE_FILE) {
-					/* Check if this file was just rebuilt */
-					struct dag_edge *pe = in->inputs;
-
-					while (pe) {
-						struct dag_node *producer = g->nodes[pe->node_id];
-
-						if (producer->type == NODE_CMD &&
-						    producer->state == STATE_BUILDING) {
-							input_dirty = 1;
-							break;
-						}
-
-						pe = pe->next;
-					}
-
-					/* Check stat/hash if we have an old DB */
-					if (!input_dirty && !cmd_dirty && have_old_db) {
-						if (file_is_dirty(in->name, &old_db, &new_db))
-							input_dirty = 1;
-					}
-				}
-
-				if (input_dirty) break;
-
-				e = e->next;
-			}
-		}
-
-		/* Check implicit deps (from previous depfile) */
-		int implicit_dirty = 0;
-
-		if (!cmd_dirty && !input_dirty && have_old_db && first_output) {
-			implicit_dirty = implicit_deps_dirty(first_output, &old_db, &new_db);
-		}
-
-		/* Check if outputs exist */
-		int output_missing = 0;
-		{
-			struct dag_edge *e = n->outputs;
-
-			while (e) {
-				struct dag_node *out = g->nodes[e->node_id];
-
-				if (out->type == NODE_FILE) {
-					struct kiln_stat st;
-
-					if (kiln_stat_file(out->name, &st) != OK)
-						output_missing = 1;
-				}
-
-				e = e->next;
-			}
-		}
-
-		int dirty = cmd_dirty || input_dirty || implicit_dirty || output_missing;
-
-		if (!dirty) {
+		if (!node_is_dirty(g, n, &old_db, have_old_db, &new_db,
+		                   &first_output, &cmd_hash)) {
 			n->state = STATE_DONE;
-
-			/* Carry forward command hash */
-			if (first_output) {
-				char key[4096];
-				snprintf(key, sizeof(key), "cmd:%s", first_output);
-				cdb_writer_add(&new_db, key, strlen(key),
-				               &cmd_hash, sizeof(cmd_hash));
-				/* Carry forward depfile deps */
-				snprintf(key, sizeof(key), "deps:%s", first_output);
-				size_t vlen;
-				const void *val = cdb_find(&old_db, key, strlen(key), &vlen);
-
-				if (val && vlen > 0)
-					cdb_writer_add(&new_db, key, strlen(key), val, vlen);
-			}
-
 			continue;
 		}
 
