@@ -83,6 +83,7 @@ static int
 cmd_lindex(struct picolInterp *i, int argc, char **argv,
                    struct picolCmd *cmd)
 {
+	(void)cmd;
 	if (argc != 3) return picolArityErr(i, argv[0]);
 
 	const char *list = argv[1];
@@ -123,6 +124,7 @@ static int
 cmd_llength(struct picolInterp *i, int argc, char **argv,
                     struct picolCmd *cmd)
 {
+	(void)cmd;
 	if (argc != 2) return picolArityErr(i, argv[0]);
 
 	const char *p = argv[1];
@@ -147,6 +149,7 @@ static int
 cmd_glob(struct picolInterp *i, int argc, char **argv,
                  struct picolCmd *cmd)
 {
+	(void)cmd;
 	if (argc < 2) return picolArityErr(i, argv[0]);
 
 	char result[16384];
@@ -226,6 +229,7 @@ static int
 cmd_file(struct picolInterp *i, int argc, char **argv,
                  struct picolCmd *cmd)
 {
+	(void)cmd;
 	if (argc != 3) return picolArityErr(i, argv[0]);
 
 	const char *sub = argv[1];

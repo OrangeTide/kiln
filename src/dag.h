@@ -16,7 +16,6 @@ enum {
  */
 enum {
 	STATE_CLEAN,
-	STATE_DIRTY,
 	STATE_BUILDING,
 	STATE_DONE,
 	STATE_FAILED
@@ -96,6 +95,9 @@ void dag_add_edge(struct dag *g, int from_id, int to_id);
  * set to the id of a node involved in the cycle.
  */
 int dag_topo_sort(struct dag *g, int *cycle_node);
+
+/* dag_has_producer returns 1 if the file node has a CMD input (is a build output). */
+int dag_has_producer(struct dag *g, int file_id);
 
 /* dag_print_plan prints the execution plan to stdout for debugging. */
 void dag_print_plan(struct dag *g);

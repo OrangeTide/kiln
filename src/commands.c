@@ -58,20 +58,6 @@ builddir_prefix(const char *path)
 	return result;
 }
 
-// Check if a file node has a producer (a CMD node with an edge to it).
-static int
-dag_has_producer(struct dag *g, int file_id)
-{
-	struct dag_node *n = g->nodes[file_id];
-	struct dag_edge *e = n->inputs;
-	while (e) {
-		if (g->nodes[e->node_id]->type == NODE_CMD)
-			return 1;
-		e = e->next;
-	}
-	return 0;
-}
-
 /*
  * This file is #included from kiln.c after picol_ext.c,
  * so all picol types, functions, and macros are already visible.

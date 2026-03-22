@@ -267,6 +267,21 @@ dag_topo_sort(struct dag *g, int *cycle_node)
 	return OK;
 }
 
+int
+dag_has_producer(struct dag *g, int file_id)
+{
+	struct dag_edge *e = g->nodes[file_id]->inputs;
+
+	while (e) {
+		if (g->nodes[e->node_id]->type == NODE_CMD)
+			return 1;
+
+		e = e->next;
+	}
+
+	return 0;
+}
+
 void
 dag_print_plan(struct dag *g)
 {

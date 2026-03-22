@@ -269,21 +269,7 @@ build_clean(struct dag *g, struct build_config *cfg)
 		struct dag_node *n = g->nodes[i];
 
 		if (n->type != NODE_FILE) continue;
-
-		/* A file is a generated output if it has a command as input */
-		struct dag_edge *e = n->inputs;
-		int is_output = 0;
-
-		while (e) {
-			if (g->nodes[e->node_id]->type == NODE_CMD) {
-				is_output = 1;
-				break;
-			}
-
-			e = e->next;
-		}
-
-		if (!is_output) continue;
+		if (!dag_has_producer(g, n->id)) continue;
 
 		struct kiln_stat st;
 
@@ -304,20 +290,7 @@ build_clean(struct dag *g, struct build_config *cfg)
 		struct dag_node *n = g->nodes[i];
 
 		if (n->type != NODE_FILE) continue;
-
-		struct dag_edge *e = n->inputs;
-		int is_output = 0;
-
-		while (e) {
-			if (g->nodes[e->node_id]->type == NODE_CMD) {
-				is_output = 1;
-				break;
-			}
-
-			e = e->next;
-		}
-
-		if (!is_output) continue;
+		if (!dag_has_producer(g, n->id)) continue;
 
 		/* Find the directory portion */
 		const char *last_sep = NULL;

@@ -25,7 +25,7 @@ struct kiln_stat {
 /* kiln_stat_file fills st with the stat fingerprint for path. */
 int kiln_stat_file(const char *path, struct kiln_stat *st);
 
-/* kiln_rename atomically replaces newpath with oldpath. */
+/* kiln_rename replaces newpath with oldpath. */
 int kiln_rename(const char *oldpath, const char *newpath);
 
 /* kiln_unlink removes a file. */
