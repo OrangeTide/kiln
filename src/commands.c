@@ -275,16 +275,32 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 		return PICOL_ERR;
 	}
 
-	// Evaluate the command template with all variables ($out, $in, $depfile)
-	// now set. The template was passed in braces {}, so Tcl didn't substitute
-	// it yet. We wrap it as: set _ "..." to trigger substitution now.
+	// Evaluate the command template with all variables ($out, $in,
+	// $depfile) now set. The template arrived in braces, so Tcl has not
+	// substituted it yet. Wrap it as a double-quoted string so $var and
+	// [cmd] expand, escaping any embedded double quote so it stays a
+	// literal instead of closing the string early.
 	{
-		size_t tlen = strlen(g_rule.command_template);
-		char *eval_cmd = xmalloc(tlen + 9);
-		memcpy(eval_cmd, "set _ \"", 7);
-		memcpy(eval_cmd + 7, g_rule.command_template, tlen);
-		eval_cmd[7 + tlen] = '"';
-		eval_cmd[7 + tlen + 1] = '\0';
+		const char *t = g_rule.command_template;
+		size_t tlen = strlen(t);
+		size_t quotes = 0;
+
+		for (size_t k = 0; k < tlen; k++)
+			if (t[k] == '"') quotes++;
+
+		char *eval_cmd = xmalloc(7 + tlen + quotes + 2);
+		char *w = eval_cmd;
+		memcpy(w, "set _ \"", 7);
+		w += 7;
+
+		for (size_t k = 0; k < tlen; k++) {
+			if (t[k] == '"') *w++ = '\\';
+
+			*w++ = t[k];
+		}
+
+		*w++ = '"';
+		*w = '\0';
 		ret = picolEval(i, eval_cmd);
 		free(eval_cmd);
 		free(g_rule.command_template);

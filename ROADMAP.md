@@ -162,11 +162,13 @@ which rules out `check`, `run`, and `install` as first-class targets.
 19. **Diagnostics.** Improve error context: report the full cycle path, not a
     single node, and attach `file:line` to more failures.
 
-19a. **Command-template quoting.** A `command {...}` template is expanded by
-    wrapping it as `set _ "<template>"` to defer substitution, so a literal
-    double quote in the template breaks parsing ("Wrong number of args for
-    set"). Expand the template without this round-trip, or escape it, so
-    commands can contain quotes.
+19a. **Command-template quoting. (done)** A `command {...}` template is
+    expanded by wrapping it as `set _ "<template>"` to defer substitution,
+    which let a literal double quote in the template close the string early
+    ("Wrong number of args for set"). Embedded double quotes are now escaped
+    when building that wrapper, so commands can contain quotes while `$var`
+    and `[cmd]` still expand. Backslash handling still follows Tcl
+    double-quote rules; revisit if that proves surprising.
 
 20. **Scale.** Benchmark and tune for the thousands of nodes a real toolchain
     build reaches. The open-addressing name table and CDB should hold up;

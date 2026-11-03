@@ -423,6 +423,32 @@ check_file_missing "dry-run: no main.o" "$T/main.o"
 check_file_missing "dry-run: no hello" "$T/hello"
 
 # =========================================================================
+printf "=== Build: quoted command ===\n"
+# =========================================================================
+
+TQ="$TMPDIR/quote"
+mkdir -p "$TQ"
+cd "$TQ"
+
+echo "hi" > src.txt
+
+cat > Kilnfile <<'EOF'
+rule q.txt {
+    inputs src.txt
+    command {sh -c "cp $in q.txt"}
+}
+EOF
+
+# $in expands and the literal double quotes survive into the command.
+OUT=$("$KILN" --triplet t -n Kilnfile 2>&1)
+check_contains "quoted command expands \$in" "$OUT" "cp src.txt q.txt"
+check_contains "quoted command keeps quotes" "$OUT" '"cp src.txt q.txt"'
+
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "quoted command builds" "$OUT" "built 1 target"
+check "quoted command output" "$(cat q.txt)" "hi"
+
+# =========================================================================
 printf "=== Build: tool dependency (uses) ===\n"
 # =========================================================================
 
