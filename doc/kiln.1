@@ -107,8 +107,8 @@ Using a flag rather than positional arguments avoids ambiguity
 when a build target shares a name with an action.
 .TP
 .B clean
-Delete all output files declared in the DAG and remove any
-parent directories that become empty.
+Delete all output files declared in the DAG, along with the depfiles
+rules generate, and remove any parent directories that become empty.
 Also removes the staleness database
 .RI ( kiln.cdb )
 and the build directory if empty.

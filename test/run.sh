@@ -958,6 +958,41 @@ check_file_exists "mirror: io object at mirrored path" "$TMIR/build/t/src/io/op.
 check_file_exists "mirror: program built" "$TMIR/build/t/app"
 
 # =========================================================================
+printf "=== Clean action ===\n"
+# =========================================================================
+
+TCLN="$TMPDIR/clean"
+mkdir -p "$TCLN/src/math"
+cd "$TCLN"
+echo 'int add(int a,int b){return a+b;}' > src/math/add.c
+echo 'int add(int,int); int main(void){return add(1,2);}' > main.c
+cat > Kilnfile <<'EOF'
+builddir build/$Triplet
+cc_program app [list main.c src/math/add.c] "-O2"
+EOF
+
+"$KILN" --triplet t app >/dev/null 2>&1
+check_file_exists "clean: object built" "$TCLN/build/t/src/math/add.o"
+check_file_exists "clean: depfile written" "$TCLN/build/t/src/math/add.d"
+
+OUT=$("$KILN" --triplet t -a clean 2>&1)
+check_contains "clean: reports depfile removal" "$OUT" "add.d"
+check_file_missing "clean: output removed" "$TCLN/build/t/app"
+check_file_missing "clean: object removed" "$TCLN/build/t/src/math/add.o"
+check_file_missing "clean: depfile removed" "$TCLN/build/t/src/math/add.d"
+
+# With outputs and depfiles gone, the nested build directory is removed too.
+if [ -d "$TCLN/build" ]; then
+    fail "clean: build directory removed"
+    printf "    still present: %s\n" "$TCLN/build"
+else
+    pass "clean: build directory removed"
+fi
+
+OUT=$("$KILN" --triplet t -a clean 2>&1)
+check_contains "clean: nothing left to clean" "$OUT" "nothing to clean"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

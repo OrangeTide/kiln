@@ -46,7 +46,7 @@ cc -O2 -o kiln bootstrap.c
 kiln                         # build the default target from ./Kilnfile
 kiln app test                # build the named targets and their dependencies
 kiln -f other.kiln           # read a build description other than ./Kilnfile
-kiln -a clean                # delete all outputs, remove empty dirs
+kiln -a clean                # delete outputs and depfiles, remove empty dirs
 kiln -n                      # dry run (print commands only)
 kiln --triplet arm-linux-gnueabihf   # cross-compile
 ```
@@ -257,7 +257,7 @@ sh doc/gen-screenshot.sh
 | Flag | Description |
 |------|-------------|
 | `-f F`, `--file F` | Read build description F (default `Kilnfile`; repeatable) |
-| `-a clean` | Delete all declared outputs and empty parent dirs |
+| `-a clean` | Delete declared outputs and generated depfiles, then empty dirs |
 | `-a status` | Report out-of-date targets and stale database entries |
 | `--triplet T` | Set target triplet (skip `cc -dumpmachine`) |
 | `--builddir P` | Set build directory prefix for rule outputs |

@@ -96,10 +96,12 @@ targets, avoiding ambiguity when a target happens to share a name:
     kiln -a clean    # delete all DAG-declared outputs
     kiln -a status   # report out-of-date targets and stale CDB entries
 
-`clean` walks all NODE_FILE nodes in the DAG, identifies outputs (files
-with a NODE_CMD producer edge), deletes them, then removes empty parent
-directories bottom-up. It also removes the CDB file and the build
-directory if empty.
+`clean` walks the DAG and deletes each output (a NODE_FILE with a
+NODE_CMD producer edge) and each command node's depfile, then removes the
+empty parent directories bottom-up (via `remove_empty_parent_of`). It also
+removes the CDB file and the build directory if empty. Depfiles are
+compiler output, not DAG file nodes, so they are cleaned from the command
+nodes that declare them rather than by walking file nodes.
 
 The existing `delete_outputs()` in execute.c handles per-command cleanup
 on failure. `build_clean()` uses the same output identification pattern

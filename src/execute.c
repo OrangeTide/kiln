@@ -260,23 +260,49 @@ remove_empty_parents(const char *path, const char *stop_at)
 	}
 }
 
+/* Remove the directory portion of a path and its now-empty parents. */
+static void
+remove_empty_parent_of(const char *path)
+{
+	const char *last_sep = NULL;
+
+	for (const char *p = path; *p; p++)
+		if (*p == '/') last_sep = p;
+
+	if (!last_sep) return;
+
+	char dir[4096];
+	size_t dlen = last_sep - path;
+
+	if (dlen >= sizeof(dir)) return;
+
+	memcpy(dir, path, dlen);
+	dir[dlen] = '\0';
+	remove_empty_parents(dir, NULL);
+}
+
 int
 build_clean(struct dag *g, struct build_config *cfg)
 {
 	int removed = 0;
 
+	/* Remove declared file outputs and the depfiles rules generate. */
 	for (int i = 0; i < g->count; i++) {
 		struct dag_node *n = g->nodes[i];
-
-		if (n->type != NODE_FILE) continue;
-		if (!dag_has_producer(g, n->id)) continue;
-
 		struct kiln_stat st;
 
-		if (kiln_stat_file(n->name, &st) == OK) {
-			if (kiln_unlink(n->name) == OK) {
+		if (n->type == NODE_FILE && dag_has_producer(g, n->id)) {
+			if (kiln_stat_file(n->name, &st) == OK &&
+			    kiln_unlink(n->name) == OK) {
 				printf("%srm%s %s\n",
 				       term_red(), term_reset(), n->name);
+				removed++;
+			}
+		} else if (n->type == NODE_CMD && n->depfile) {
+			if (kiln_stat_file(n->depfile, &st) == OK &&
+			    kiln_unlink(n->depfile) == OK) {
+				printf("%srm%s %s\n",
+				       term_red(), term_reset(), n->depfile);
 				removed++;
 			}
 		}
@@ -285,29 +311,14 @@ build_clean(struct dag *g, struct build_config *cfg)
 	/* Remove CDB file */
 	kiln_unlink(cfg->cdb_path);
 
-	/* Remove empty parent directories, walking up to "build" */
+	/* Remove the now-empty directories those files lived in. */
 	for (int i = 0; i < g->count; i++) {
 		struct dag_node *n = g->nodes[i];
 
-		if (n->type != NODE_FILE) continue;
-		if (!dag_has_producer(g, n->id)) continue;
-
-		/* Find the directory portion */
-		const char *last_sep = NULL;
-
-		for (const char *p = n->name; *p; p++)
-			if (*p == '/') last_sep = p;
-
-		if (last_sep) {
-			char dir[4096];
-			size_t dlen = last_sep - n->name;
-
-			if (dlen < sizeof(dir)) {
-				memcpy(dir, n->name, dlen);
-				dir[dlen] = '\0';
-				remove_empty_parents(dir, NULL);
-			}
-		}
+		if (n->type == NODE_FILE && dag_has_producer(g, n->id))
+			remove_empty_parent_of(n->name);
+		else if (n->type == NODE_CMD && n->depfile)
+			remove_empty_parent_of(n->depfile);
 	}
 
 	/* Try to remove the build directory itself */
