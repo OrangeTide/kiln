@@ -40,8 +40,9 @@ Exported functions are prefixed by their module name:
 Static Tcl command handlers use the `cmd_` prefix:
 
 - `cmd_rule`, `cmd_source`, `cmd_builddir` (commands.c)
-- `cmd_rule_inputs`, `cmd_rule_command`, `cmd_rule_depfile`
-  (commands.c; registered only while a `rule` body is evaluated)
+- `cmd_rule_inputs`, `cmd_rule_uses`, `cmd_rule_command`,
+  `cmd_rule_depfile` (commands.c; registered only while a `rule` body is
+  evaluated)
 - `cmd_lindex`, `cmd_llength`, `cmd_glob`, `cmd_file` (picol_ext.c)
 
 Upstream picol functions keep their `picol` prefix - do not rename them.
@@ -126,6 +127,7 @@ Build descriptions are written in Tcl and loaded from files named
 
     rule <outputs> { body }    # define a build rule
       inputs <files...>        # declare inputs (sets $in)
+      uses <files...>          # tool deps tracked like inputs, kept out of $in
       command <string>         # shell command (expands $out, $in, $depfile)
       depfile <path>           # optional gcc-style depfile
 

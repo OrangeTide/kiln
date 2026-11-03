@@ -423,6 +423,76 @@ check_file_missing "dry-run: no main.o" "$T/main.o"
 check_file_missing "dry-run: no hello" "$T/hello"
 
 # =========================================================================
+printf "=== Build: tool dependency (uses) ===\n"
+# =========================================================================
+
+TU="$TMPDIR/uses"
+mkdir -p "$TU"
+cd "$TU"
+
+echo "hello" > in.txt
+printf 'cp "$1" "$2"\n' > gen.sh
+
+cat > Kilnfile <<'EOF'
+rule out.txt {
+    inputs in.txt
+    uses gen.sh
+    command {sh gen.sh $in out.txt}
+}
+rule probe.txt {
+    inputs in.txt
+    uses gen.sh
+    command {echo $in > probe.txt}
+}
+EOF
+
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "uses: initial build" "$OUT" "built 2 targets"
+check_file_exists "uses: out.txt" "$TU/out.txt"
+check "uses: tool kept out of \$in" "$(cat probe.txt)" "in.txt"
+
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "uses: no-op when tool unchanged" "$OUT" "nothing to do"
+
+# Changing the tool forces a rebuild even though inputs are unchanged.
+sleep 1
+printf 'cp "$1" "$2"; echo TOOL2 >> "$2"\n' > gen.sh
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_not_contains "uses: tool change rebuilds" "$OUT" "nothing to do"
+check_contains "uses: output regenerated" "$(cat out.txt)" "TOOL2"
+
+# A tool that is itself a build output: it must build first, and changing
+# its source must cascade to the command that uses it.
+TV="$TMPDIR/uses2"
+mkdir -p "$TV"
+cd "$TV"
+
+printf 'cp "$1" "$2"\n' > tool.src
+echo "data" > data.txt
+
+cat > Kilnfile <<'EOF'
+rule tool.sh {
+    inputs tool.src
+    command {cp $in $out}
+}
+rule out.txt {
+    inputs data.txt
+    uses tool.sh
+    command {sh tool.sh data.txt out.txt}
+}
+EOF
+
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "uses in-tree: tool and user built" "$OUT" "built 2 targets"
+check_file_exists "uses in-tree: out.txt" "$TV/out.txt"
+
+sleep 1
+printf 'cp "$1" "$2"; echo TOOL2 >> "$2"\n' > tool.src
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "uses in-tree: tool rebuild cascades" "$OUT" "built 2 targets"
+check_contains "uses in-tree: output regenerated" "$(cat out.txt)" "TOOL2"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

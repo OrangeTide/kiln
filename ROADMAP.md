@@ -47,15 +47,14 @@ come first because later phases depend on them.
    which is simple and needs no platform wait-for-any; a poll-based wait-any,
    so a slow job cannot hold finished slots idle, is a future optimization.
 
-2. **Tool-binary staleness.** Staleness hashes the command string only, so
-   rebuilding an in-tree compiler or assembler does not re-run the commands
-   that use it. The Skjegg build bootstraps its own assembler and then
-   assembles with it, which Make cannot get right either. Let a rule name the
-   program it runs as an implicit dependency (for example a `uses <path>`
-   declaration, or auto-detection of the first argv token when it resolves to
-   a build output), and include that file in the staleness check.
-   - Done when: changing a built tool forces every dependent command to
-     re-run, and nothing else does.
+2. **Tool-binary staleness. (done)** A rule can declare the programs it runs
+   with `uses <files...>`. Those files are added as command inputs, so the
+   existing staleness check, ordering, parallel readiness, and CDB snapshot
+   all apply, while they are kept out of `$in`. Changing a tool (an in-tree
+   assembler or an external compiler named by path) forces the commands that
+   use it to re-run, and a tool that is itself a build output is built first.
+   Hashing a tool resolved from `$PATH` still needs the config-time `exec` in
+   item 6 to turn a bare `cc` into a path.
 
 3. **`-a status`.** Implement the stubbed action: report files in the CDB
    that are no longer in the DAG, outputs missing on disk, and stale entries.
@@ -162,6 +161,12 @@ which rules out `check`, `run`, and `install` as first-class targets.
 
 19. **Diagnostics.** Improve error context: report the full cycle path, not a
     single node, and attach `file:line` to more failures.
+
+19a. **Command-template quoting.** A `command {...}` template is expanded by
+    wrapping it as `set _ "<template>"` to defer substitution, so a literal
+    double quote in the template breaks parsing ("Wrong number of args for
+    set"). Expand the template without this round-trip, or escape it, so
+    commands can contain quotes.
 
 20. **Scale.** Benchmark and tune for the thousands of nodes a real toolchain
     build reaches. The open-addressing name table and CDB should hold up;

@@ -21,6 +21,8 @@ detection, and zero dependencies.
   automatically
 - **Compiler depfile support** - parses `cc -MMD` output for automatic
   header dependency tracking
+- **Tool tracking** - declare the compiler or script a rule runs with
+  `uses`; changing that tool triggers a rebuild
 - **Cross-compilation** - `--triplet` flag, artifacts in
   `build/<triplet>/` so builds don't collide
 - **Zero dependencies** - single static binary, bootstraps with one
@@ -72,8 +74,21 @@ rule build/$Triplet/hello {
 
 The `rule` command declares outputs, inputs, an optional depfile, and a
 shell command. Variables like `$out`, `$in`, and `$depfile` are set
-automatically. Since the body is Tcl, you can use `glob`, `foreach`,
-`file`, and any other Tcl command.
+automatically. Since the body is Tcl, you can use `glob`, `file`, `if`,
+`while`, `proc`, and the other built-in commands.
+
+Use `uses` to declare a program a rule runs, such as a compiler or a
+generator script, when it is not already an input. kiln tracks it for
+staleness like an input, so changing the tool rebuilds, and if the tool
+is itself a build output it is built first:
+
+```tcl
+rule build/$Triplet/parser.c {
+    inputs parser.peg
+    uses build/$Triplet/peg
+    command {build/$Triplet/peg $in > $out}
+}
+```
 
 To avoid repeating `build/$Triplet/` on every path, set a build
 directory prefix with the `builddir` command (or the `--builddir`

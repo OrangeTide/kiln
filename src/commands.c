@@ -67,6 +67,7 @@ builddir_prefix(const char *path)
 // A single static instance is used since rules are evaluated sequentially.
 struct rule_state {
 	char *inputs;           // space-separated input list
+	char *tools;            // space-separated tool deps (not in $in)
 	char *command;          // final expanded command string
 	char *command_template; // raw template, evaluated after body
 	char *depfile;          // depfile path or NULL
@@ -78,6 +79,7 @@ static void
 rule_state_clear(struct rule_state *rs)
 {
 	rs->inputs = NULL;
+	rs->tools = NULL;
 	rs->command = NULL;
 	rs->command_template = NULL;
 	rs->depfile = NULL;
@@ -87,10 +89,43 @@ static void
 rule_state_free(struct rule_state *rs)
 {
 	free(rs->inputs);
+	free(rs->tools);
 	free(rs->command);
 	free(rs->command_template);
 	free(rs->depfile);
 	rule_state_clear(rs);
+}
+
+/* Append one resolved path to a space-separated list in *dst.
+ * When builddir is set and the prefixed path names a known build output,
+ * the prefixed form is stored; otherwise the path is stored as given. */
+static void
+append_path(char **dst, const char *arg)
+{
+	char *resolved = NULL;
+
+	if (g_builddir && g_builddir[0]) {
+		char *prefixed = builddir_prefix(arg);
+		int fid = dag_find_file(g_dag, prefixed);
+
+		if (fid >= 0 && dag_has_producer(g_dag, fid))
+			resolved = prefixed;
+		else
+			free(prefixed);
+	}
+
+	const char *name = resolved ? resolved : arg;
+	size_t nlen = strlen(name);
+	size_t existing = *dst ? strlen(*dst) : 0;
+	int need_sep = (existing > 0) ? 1 : 0;
+
+	*dst = xrealloc(*dst, existing + need_sep + nlen + 1);
+
+	if (need_sep)
+		(*dst)[existing++] = ' ';
+
+	memcpy(*dst + existing, name, nlen + 1);
+	free(resolved);
 }
 
 static int
@@ -100,36 +135,32 @@ cmd_rule_inputs(struct picolInterp *i, int argc,
 	(void)cmd;
 	if (argc < 2) return picolArityErr(i, argv[0]);
 
-	// Single pass: resolve each input and append with xrealloc growth
-	for (int j = 1; j < argc; j++) {
-		char *resolved = NULL;
-
-		if (g_builddir && g_builddir[0]) {
-			char *prefixed = builddir_prefix(argv[j]);
-			int fid = dag_find_file(g_dag, prefixed);
-
-			if (fid >= 0 && dag_has_producer(g_dag, fid))
-				resolved = prefixed;
-			else
-				free(prefixed);
-		}
-
-		const char *name = resolved ? resolved : argv[j];
-		size_t nlen = strlen(name);
-		size_t existing = g_rule.inputs ? strlen(g_rule.inputs) : 0;
-		int need_sep = (existing > 0) ? 1 : 0;
-
-		g_rule.inputs = xrealloc(g_rule.inputs,
-		                         existing + need_sep + nlen + 1);
-
-		if (need_sep)
-			g_rule.inputs[existing++] = ' ';
-
-		memcpy(g_rule.inputs + existing, name, nlen + 1);
-		free(resolved);
-	}
+	for (int j = 1; j < argc; j++)
+		append_path(&g_rule.inputs, argv[j]);
 
 	picolSetVar(i, "in", g_rule.inputs);
+	return PICOL_OK;
+}
+
+/**
+ * uses file ...
+ *
+ * Declare programs (or other files) a command depends on but that are
+ * not passed as inputs. They are tracked for staleness exactly like
+ * inputs, so a changed compiler or assembler forces a rebuild, and when
+ * a tool is itself a build output it is ordered before the commands that
+ * use it. They are kept out of the $in variable.
+ */
+static int
+cmd_rule_uses(struct picolInterp *i, int argc,
+              char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc < 2) return picolArityErr(i, argv[0]);
+
+	for (int j = 1; j < argc; j++)
+		append_path(&g_rule.tools, argv[j]);
+
 	return PICOL_OK;
 }
 
@@ -220,6 +251,7 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 
 	// Register sub-commands for the body
 	picolRegisterCommand(i, "inputs", cmd_rule_inputs);
+	picolRegisterCommand(i, "uses", cmd_rule_uses);
 	picolRegisterCommand(i, "command", cmd_rule_command);
 	picolRegisterCommand(i, "depfile", cmd_rule_depfile);
 
@@ -273,6 +305,23 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 	// Parse and add input file nodes -> edges to command
 	if (g_rule.inputs) {
 		const char *p = g_rule.inputs;
+		const char *start;
+		int len;
+
+		while (list_next(&p, &start, &len)) {
+			char *name = xmalloc(len + 1);
+			memcpy(name, start, len);
+			name[len] = '\0';
+			int file_id = dag_file(g_dag, name);
+			dag_add_edge(g_dag, file_id, cmd_id);
+			free(name);
+		}
+	}
+
+	// Tool dependencies: added as command inputs so staleness and
+	// ordering apply, but they were never added to $in.
+	if (g_rule.tools) {
+		const char *p = g_rule.tools;
 		const char *start;
 		int len;
 

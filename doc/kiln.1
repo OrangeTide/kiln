@@ -114,6 +114,15 @@ Sets the variable
 .BR $in .
 May be called multiple times; inputs accumulate.
 .TP
+.BI "uses " files...
+Declare programs or other files the command depends on but that are not
+passed as inputs.
+They are tracked for staleness exactly like inputs, so a changed
+compiler or assembler forces a rebuild, and when a listed file is itself
+a build output it is built before the commands that use it.
+They are not added to
+.BR $in .
+.TP
 .BI "command " {template}
 Set the shell command to execute.
 The template is evaluated after the body completes,
