@@ -552,6 +552,23 @@ check_contains "stdlib cc_object builds" "$OUT" "built 1 target"
 check_file_exists "stdlib cc_object output" "$TS/o.o"
 check_file_exists "stdlib cc_object depfile" "$TS/o.d"
 
+# cc_program: compile several sources and link, in one call.
+cat > prog.c <<'EOF'
+int helper(void);
+int main(void) { return helper(); }
+EOF
+cat > helper.c <<'EOF'
+int helper(void) { return 0; }
+EOF
+cat > Kilnfile <<'EOF'
+cc_program app "prog.c helper.c" "-O2"
+EOF
+
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "stdlib cc_program builds" "$OUT" "built 3 targets"
+check_file_exists "stdlib cc_program output" "$TS/app"
+check_file_exists "stdlib cc_program object" "$TS/helper.o"
+
 # =========================================================================
 printf "=== Status action ===\n"
 # =========================================================================

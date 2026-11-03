@@ -240,6 +240,16 @@ any Kilnfile unless
 is given.
 It defines helper procedures that reduce rule boilerplate.
 .TP
+.BI "cc_program " "out sources flags"
+Compile each C source in the
+.I sources
+list and link the resulting objects into
+.IR out .
+.TP
+.BI "cc_objects " "sources flags"
+Define a compile rule for each C source and return the list of object
+paths, for linking in a separate rule.
+.TP
 .BI "cc_object " "obj src dep flags"
 Define a rule that compiles the C source
 .I src

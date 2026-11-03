@@ -119,12 +119,18 @@ loaded before your Kilnfiles unless you pass `--no-stdlib`. It provides
 helper procs that cut rule boilerplate:
 
 ```tcl
-# Compile one C source to an object with header-dependency tracking
-cc_object build/$Triplet/app.o app.c build/$Triplet/app.d "-Wall -O2"
+builddir build/$Triplet
 
-# Copy a file as a build step
-cp_rule build/$Triplet/config.txt config.in
+# Compile every C source and link them into one program
+cc_program app [glob *.c] "-Wall -O2"
 ```
+
+The helpers are:
+
+- `cc_program out sources flags` - compile each source and link into `out`
+- `cc_objects sources flags` - compile each source, returning the object list
+- `cc_object obj src dep flags` - compile one source with depfile tracking
+- `cp_rule dst src` - copy as a build step
 
 The library is edited as `lib/kiln.tcl` and embedded with
 `sh bin/embed.sh`, which regenerates `src/kiln_stdlib.h`. The helper set

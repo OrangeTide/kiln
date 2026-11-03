@@ -92,11 +92,18 @@ and list filtering precisely because the base language is weak.
    pattern of tracking a `$PATH` tool: `uses [exec command -v cc]`. Output is
    capped at 64 KiB, which suits probes, not bulk data.
 
-7. **Rule templates.** Provide an ergonomic way to declare one rule shape and
-   apply it across many inputs or targets, keyed by a suffix or an
-   architecture name. With `foreach` plus `proc` this can be a stdlib
-   helper rather than new syntax. The goal is that the per-arch tool rules
-   that Make writes as a pattern rule plus `$(call)` become a short loop.
+7. **Rule templates. (done)** Done as stdlib helpers rather than new syntax,
+   on top of `foreach`/`proc`/`file`: `cc_objects sources flags` returns the
+   object list after defining a compile rule per source (Picol has no
+   `upvar`, so it returns rather than mutating a caller variable), and
+   `cc_program out sources flags` compiles and links in one call. Combined
+   with `builddir` and a `foreach` over targets, the per-target rules Make
+   writes with a pattern rule plus `$(call)` are now a short loop. The
+   compiler is still hard-coded as `cc`; item 8 parameterizes it.
+
+   `cc_objects` flattens object names to the source base name, because kiln
+   only creates the top build directory, not nested output directories. A
+   build with a mirrored source tree needs that; see item 18a.
 
 8. **Toolchain configuration.** Offer a convention for declaring a toolchain
    (compiler, assembler, linker, emulator) with per-target overrides from the
@@ -164,6 +171,12 @@ which rules out `check`, `run`, and `install` as first-class targets.
 18. **Windows staleness.** On Windows the stat fingerprint sets `ino` to 0,
     weakening change detection. Use the file index from
     `GetFileInformationByHandle` or fall back to content hashing.
+
+18a. **Create output directories.** `build_execute` only creates the top
+    build directory, so a rule whose output is in a subdirectory of it
+    fails unless that directory already exists. Before running a command,
+    `mkdir -p` the directory of each of its outputs. This also lets
+    `cc_objects` mirror a source tree instead of flattening object names.
 
 19. **Diagnostics.** Improve error context: report the full cycle path, not a
     single node, and attach `file:line` to more failures.
