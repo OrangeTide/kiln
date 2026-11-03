@@ -587,6 +587,15 @@ dependencies.
 These are stored in
 .I kiln.cdb
 and checked for staleness on subsequent builds.
+.SH DIAGNOSTICS
+When the graph contains a dependency cycle, kiln prints every named node on
+the loop in order, closing back to the first, so the whole chain is visible
+rather than a single node.
+.PP
+When a build command exits nonzero or cannot be spawned, kiln reports the
+failing target, the command, and the
+.IR Kilnfile : line
+location where the rule was defined.
 .SH FILES
 .TP
 .I Kilnfile

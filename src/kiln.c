@@ -261,18 +261,40 @@ build_one(const char *triplet, const struct kiln_options *o)
 	}
 
 	/* Topological sort */
-	int cycle_node;
+	int *cycle = xmalloc(sizeof(int) * graph.count);
+	int cycle_len = 0;
 
-	if (dag_topo_sort(&graph, &cycle_node) != OK) {
-		fprintf(stderr, "kiln: dependency cycle detected");
+	if (dag_topo_sort(&graph, cycle, &cycle_len) != OK) {
+		fprintf(stderr, "kiln: dependency cycle detected:\n");
 
-		if (cycle_node >= 0 && graph.nodes[cycle_node]->name)
-			fprintf(stderr, " involving '%s'", graph.nodes[cycle_node]->name);
+		/*
+		 * Report the full path. Command nodes have no name, so print
+		 * only the file and phony nodes it links, then close the loop
+		 * back to the first named node.
+		 */
+		int first = -1;
+		int printed = 0;
 
-		fprintf(stderr, "\n");
+		for (int c = 0; c < cycle_len; c++) {
+			const char *name = graph.nodes[cycle[c]]->name;
+
+			if (!name) continue;
+
+			if (first < 0) first = c;
+
+			fprintf(stderr, "  %s %s\n", printed ? "->" : "  ", name);
+			printed++;
+		}
+
+		if (first >= 0)
+			fprintf(stderr, "  -> %s\n", graph.nodes[cycle[first]]->name);
+
+		free(cycle);
 		result = 1;
 		goto done;
 	}
+
+	free(cycle);
 
 	/*
 	 * Decide which targets to build. Explicit CLI targets win; otherwise

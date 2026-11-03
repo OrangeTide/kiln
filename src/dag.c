@@ -122,6 +122,7 @@ dag_free(struct dag *g)
 		free(n->name);
 		free(n->command);
 		free(n->depfile);
+		free(n->deffile);
 		free_edges(n->inputs);
 		free_edges(n->outputs);
 		free(n);
@@ -147,6 +148,8 @@ dag_add_node(struct dag *g, int type, const char *name)
 	n->name = name ? xstrdup(name) : NULL;
 	n->command = NULL;
 	n->depfile = NULL;
+	n->deffile = NULL;
+	n->defline = 0;
 	n->inputs = NULL;
 	n->outputs = NULL;
 	n->in_degree = 0;
@@ -176,6 +179,16 @@ int
 dag_add_phony(struct dag *g, const char *name)
 {
 	return dag_add_node(g, NODE_PHONY, name);
+}
+
+void
+dag_set_def(struct dag *g, int id, const char *file, int line)
+{
+	struct dag_node *n = g->nodes[id];
+
+	free(n->deffile);
+	n->deffile = file ? xstrdup(file) : NULL;
+	n->defline = line;
 }
 
 int
@@ -222,39 +235,58 @@ dag_add_edge(struct dag *g, int from_id, int to_id)
 	g->nodes[to_id]->in_degree++;
 }
 
-/* DFS-based cycle detection and topological sort */
+/*
+ * DFS-based cycle detection and topological sort. path holds the ids
+ * currently on the recursion stack; on a back edge the cycle is the path
+ * suffix from the revisited node to the tail, recorded into cycle.
+ */
 static int
 dfs_visit(struct dag *g, int id, int *stack, int *sp,
-          int *cycle_node)
+          int *path, int *path_len, int *cycle, int *cycle_len)
 {
 	struct dag_node *n = g->nodes[id];
 
 	if (n->visited == 1) {
-		/* Back edge - cycle detected */
-		*cycle_node = id;
+		/* Back edge: id is on the current path. */
+		int start = 0;
+
+		for (int k = 0; k < *path_len; k++)
+			if (path[k] == id) {
+				start = k;
+				break;
+			}
+
+		*cycle_len = 0;
+
+		for (int k = start; k < *path_len; k++)
+			cycle[(*cycle_len)++] = path[k];
+
 		return ERR;
 	}
 
 	if (n->visited == 2) return OK; /* Already processed */
 
 	n->visited = 1; /* Mark in-progress */
+	path[(*path_len)++] = id;
 
 	struct dag_edge *e = n->outputs;
 
 	while (e) {
-		if (dfs_visit(g, e->node_id, stack, sp, cycle_node) != OK)
+		if (dfs_visit(g, e->node_id, stack, sp, path, path_len,
+		              cycle, cycle_len) != OK)
 			return ERR;
 
 		e = e->next;
 	}
 
 	n->visited = 2; /* Done */
+	(*path_len)--;  /* pop from the recursion path */
 	stack[(*sp)++] = id;
 	return OK;
 }
 
 int
-dag_topo_sort(struct dag *g, int *cycle_node)
+dag_topo_sort(struct dag *g, int *cycle, int *cycle_len)
 {
 	free(g->order);
 	g->order = xmalloc(sizeof(int) * g->count);
@@ -264,14 +296,24 @@ dag_topo_sort(struct dag *g, int *cycle_node)
 		g->nodes[i]->visited = 0;
 
 	int sp = 0;
-	*cycle_node = -1;
+	int *path = xmalloc(sizeof(int) * g->count);
+	int path_len = 0;
+
+	*cycle_len = 0;
 
 	for (int i = 0; i < g->count; i++) {
 		if (g->nodes[i]->visited == 0) {
-			if (dfs_visit(g, i, g->order, &sp, cycle_node) != OK)
+			path_len = 0;
+
+			if (dfs_visit(g, i, g->order, &sp, path, &path_len,
+			              cycle, cycle_len) != OK) {
+				free(path);
 				return ERR;
+			}
 		}
 	}
+
+	free(path);
 
 	/* Reverse the stack to get dependency order */
 	for (int i = 0; i < sp / 2; i++) {

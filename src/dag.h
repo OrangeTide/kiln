@@ -38,6 +38,8 @@ struct dag_node {
 	/* CMD nodes only */
 	char *command;      /* shell command to execute */
 	char *depfile;      /* depfile path, or NULL */
+	char *deffile;      /* Kilnfile where the rule was defined, or NULL */
+	int defline;        /* line of the rule's definition, or 0 */
 
 	/* Graph edges */
 	struct dag_edge *inputs;    /* nodes this depends on */
@@ -81,6 +83,9 @@ int dag_add_file(struct dag *g, const char *path);
 /* dag_add_cmd adds a command node and returns its id. */
 int dag_add_cmd(struct dag *g, const char *command, const char *depfile);
 
+/* dag_set_def records the Kilnfile location where a node was defined. */
+void dag_set_def(struct dag *g, int id, const char *file, int line);
+
 /* dag_add_phony adds a named phony-target node and returns its id. */
 int dag_add_phony(struct dag *g, const char *name);
 
@@ -98,10 +103,12 @@ void dag_add_edge(struct dag *g, int from_id, int to_id);
 
 /*
  * dag_topo_sort performs a DFS-based topological sort. Returns OK on
- * success or ERR if a cycle is detected, in which case cycle_node is
- * set to the id of a node involved in the cycle.
+ * success or ERR if a cycle is detected. On a cycle, the node ids forming
+ * it are written to cycle (a caller buffer of at least g->count ints) in
+ * order, and *cycle_len is set to their count; the cycle closes from the
+ * last back to the first.
  */
-int dag_topo_sort(struct dag *g, int *cycle_node);
+int dag_topo_sort(struct dag *g, int *cycle, int *cycle_len);
 
 /* dag_has_producer returns 1 if the file node has a CMD input (is a build output). */
 int dag_has_producer(struct dag *g, int file_id);

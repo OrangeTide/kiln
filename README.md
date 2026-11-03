@@ -358,6 +358,29 @@ Staleness is checked in three ways:
 State is persisted in `build/<triplet>/kiln.cdb` using DJB's CDB format,
 crash-safe via atomic rename.
 
+## Diagnostics
+
+When kiln finds a dependency cycle it prints the whole loop, each named
+node in order closing back to the first, so the chain is visible at a
+glance:
+
+```
+kiln: dependency cycle detected:
+     a
+  -> b
+  -> c
+  -> a
+```
+
+When a build command fails or cannot be spawned, kiln reports the target,
+the command, and the `Kilnfile:line` where the rule was defined:
+
+```
+kiln: out.txt failed with exit code 1
+  command: false
+  rule at: Kilnfile:3
+```
+
 ## Documentation
 
 - Online: <https://orangetide.github.io/kiln/> - landing page and

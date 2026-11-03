@@ -79,6 +79,17 @@ Tcl commands use picol's own convention: `PICOL_OK` / `PICOL_ERR`.
 - Main program and execution errors use `fprintf(stderr, ...)` with
   a `"kiln: "` prefix.
 - Kilnfile parse errors include `file:line:` context.
+- `cmd_rule` and `cmd_phony` capture `i->current_file` and
+  `i->current_line` before evaluating the body (the body advances the line
+  counter), then call `dag_set_def` so each command node remembers where its
+  rule was defined. `build_execute` prints that `rule at: file:line` on a
+  build or spawn failure.
+- `dag_topo_sort` records the full cycle, not a single node. `dfs_visit`
+  keeps the ids on the current recursion path; on a back edge it copies the
+  path suffix from the revisited node into the caller's `cycle` buffer and
+  sets `cycle_len`. `build_one` prints the named nodes on that path, closing
+  the loop back to the first. Command nodes have no name and are skipped, so
+  the report reads as a chain of files and phony targets.
 
 ## Memory
 

@@ -236,8 +236,11 @@ which rules out `check`, `run`, and `install` as first-class targets.
     which also stops same-named sources in different directories from
     colliding.
 
-19. **Diagnostics.** Improve error context: report the full cycle path, not a
-    single node, and attach `file:line` to more failures.
+19. **Diagnostics. (done)** Improve error context: report the full cycle path,
+    not a single node, and attach `file:line` to more failures. A dependency
+    cycle now prints every named node on the loop closing back to the start,
+    and a build or spawn failure reports the `Kilnfile:line` where the rule was
+    defined.
 
 19a. **Command-template quoting. (done)** A `command {...}` template is
     expanded by wrapping it as `set _ "<template>"` to defer substitution,

@@ -756,6 +756,11 @@ build_execute(struct dag *g, struct build_config *cfg, const int *needed)
 				term_clear_progress();
 				fprintf(stderr, "%skiln: failed to spawn:%s %s\n",
 				        term_red(), term_reset(), n->command);
+
+				if (n->deffile)
+					fprintf(stderr, "  rule at: %s:%d\n",
+					        n->deffile, n->defline);
+
 				failed = 1;
 				break;
 			}
@@ -798,6 +803,11 @@ build_execute(struct dag *g, struct build_config *cfg, const int *needed)
 			        "  command: %s\n",
 			        term_red(), node_label(g, j.n), exitcode,
 			        term_reset(), j.n->command);
+
+			if (j.n->deffile)
+				fprintf(stderr, "  rule at: %s:%d\n",
+				        j.n->deffile, j.n->defline);
+
 			delete_outputs(g, j.n);
 			j.n->state = STATE_FAILED;
 			failed = 1;

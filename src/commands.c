@@ -261,6 +261,10 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 
 	char *body = argv[2];
 
+	/* Capture the rule's definition line before the body advances it. */
+	const char *deffile = i->current_file;
+	int defline = i->current_line;
+
 	rule_state_clear(&g_rule);
 
 	// Build prefixed output list when builddir is set.
@@ -342,6 +346,7 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 
 	// Build DAG nodes
 	int cmd_id = dag_add_cmd(g_dag, g_rule.command, g_rule.depfile);
+	dag_set_def(g_dag, cmd_id, deffile, defline);
 
 	// Inputs (set $in) and tool deps (kept out of $in) both become
 	// file->command edges so staleness and ordering apply.
@@ -386,6 +391,8 @@ cmd_phony(struct picolInterp *i, int argc, char **argv,
 
 	const char *name = argv[1];
 	char *body = argv[2];
+	const char *deffile = i->current_file;
+	int defline = i->current_line;
 
 	rule_state_clear(&g_rule);
 
@@ -425,6 +432,7 @@ cmd_phony(struct picolInterp *i, int argc, char **argv,
 	}
 
 	int cmd_id = dag_add_cmd(g_dag, g_rule.command, g_rule.depfile);
+	dag_set_def(g_dag, cmd_id, deffile, defline);
 	add_input_edges(cmd_id, g_rule.inputs);
 	add_input_edges(cmd_id, g_rule.tools);
 

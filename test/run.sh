@@ -194,6 +194,30 @@ TCLEOF
 
 OUT=$("$KILN" --triplet t -f "$T/cycle.tcl" 2>&1 || true)
 check_contains "cycle detected" "$OUT" "dependency cycle"
+# The full path is reported: both nodes and the loop back to the first.
+check_contains "cycle path lists a.o" "$OUT" "a.o"
+check_contains "cycle path lists b.o" "$OUT" "b.o"
+
+# A three-node cycle reports all three nodes in the path.
+cat > "$T/cycle3.tcl" <<'TCLEOF'
+rule x {
+    inputs z
+    command {cp $in $out}
+}
+rule y {
+    inputs x
+    command {cp $in $out}
+}
+rule z {
+    inputs y
+    command {cp $in $out}
+}
+TCLEOF
+
+OUT=$("$KILN" --triplet t -f "$T/cycle3.tcl" 2>&1 || true)
+check_contains "3-cycle lists x" "$OUT" "x"
+check_contains "3-cycle lists y" "$OUT" "y"
+check_contains "3-cycle lists z" "$OUT" "z"
 
 # Multiple outputs
 cat > "$T/multi.tcl" <<'TCLEOF'
@@ -408,6 +432,7 @@ cd "$T2"
 OUT=$("$KILN" --triplet test -f Kilnfile 2>&1 || true)
 check_contains "failure names target" "$OUT" "bad.o failed with exit code"
 check_contains "failure reports command" "$OUT" "command:"
+check_contains "failure reports rule location" "$OUT" "rule at: Kilnfile:1"
 check_file_missing "output deleted on fail" "$T2/bad.o"
 
 # =========================================================================
