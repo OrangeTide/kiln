@@ -39,7 +39,9 @@ Exported functions are prefixed by their module name:
 
 Static Tcl command handlers use the `cmd_` prefix:
 
-- `cmd_rule`, `cmd_source` (commands.c)
+- `cmd_rule`, `cmd_source`, `cmd_builddir` (commands.c)
+- `cmd_rule_inputs`, `cmd_rule_command`, `cmd_rule_depfile`
+  (commands.c; registered only while a `rule` body is evaluated)
 - `cmd_lindex`, `cmd_llength`, `cmd_glob`, `cmd_file` (picol_ext.c)
 
 Upstream picol functions keep their `picol` prefix - do not rename them.
@@ -76,9 +78,11 @@ Tcl commands use picol's own convention: `PICOL_OK` / `PICOL_ERR`.
 
 ## Memory
 
-`xmalloc`, `xrealloc`, and `xstrdup` (defined in picol.c) abort on
-allocation failure. Prefer these over raw `malloc`/`realloc` in new
-code. Some older modules (dag.c, depfile.c) still use raw allocators.
+`xmalloc`, `xrealloc`, and `xstrdup` abort on allocation failure.
+Prefer these over raw `malloc`/`realloc` in new code. The definitions
+live in picol.c (upstream); `src/xmalloc.h` provides forward
+declarations so modules included before picol.c in the unity build can
+still use them.
 
 ## Actions
 
@@ -126,8 +130,13 @@ Build descriptions are written in Tcl and loaded from files named
       depfile <path>           # optional gcc-style depfile
 
     source <filename>          # include another Kilnfile
+    builddir <path>            # set output prefix (sets $BuildDir)
 
-Predefined variables: `$Triplet`, `$Jobs`, `$DryRun`, `$SourcePath`.
+Predefined variables: `$Triplet`, `$Jobs`, `$DryRun`, `$SourcePath`,
+and `$BuildDir` (set once `builddir` or `--builddir` is used).
+
+The `--builddir` command-line flag takes precedence over a `builddir`
+command in the Kilnfile.
 
 ## Platform Abstraction
 

@@ -1,5 +1,6 @@
 # kiln
 
+[![CI](https://github.com/OrangeTide/kiln/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangeTide/kiln/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![C99+](https://img.shields.io/badge/C-99+-brightgreen.svg)](#)
 [![Platforms: Linux, macOS, Windows](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#)
@@ -74,6 +75,12 @@ shell command. Variables like `$out`, `$in`, and `$depfile` are set
 automatically. Since the body is Tcl, you can use `glob`, `foreach`,
 `file`, and any other Tcl command.
 
+To avoid repeating `build/$Triplet/` on every path, set a build
+directory prefix with the `builddir` command (or the `--builddir`
+flag) and write outputs as plain paths. kiln prepends the prefix to
+rule outputs and depfiles automatically, and resolves inputs that name
+a prefixed build output.
+
 ## How It Works
 
 1. **Parse** - evaluate Kilnfiles in a Tcl interpreter (Picol 2),
@@ -96,9 +103,14 @@ crash-safe via atomic rename.
 
 ## Documentation
 
+- Online: <https://orangetide.github.io/kiln/> - landing page and
+  rendered man page, published from `site/` by CI
 - `doc/kiln.1` - man page (`man -l doc/kiln.1`)
 - `HACKING.md` - developer guide
 - `STYLE.md` - coding conventions
+
+Build and preview the documentation site locally with
+`make -C site serve` (requires `pandoc`).
 
 The screenshot above is generated from real kiln output:
 
@@ -113,8 +125,9 @@ sh doc/gen-screenshot.sh
 | `-a clean` | Delete all declared outputs and empty parent dirs |
 | `-a status` | Show CDB/DAG inconsistencies *(not yet implemented)* |
 | `--triplet T` | Set target triplet (skip `cc -dumpmachine`) |
+| `--builddir P` | Set build directory prefix for rule outputs |
 | `--lib F` | Load a Tcl library before Kilnfiles (repeatable) |
-| `--no-stdlib` | Skip the built-in standard library |
+| `--no-stdlib` | Skip the built-in standard library *(not yet bundled)* |
 | `-n`, `--dry-run` | Print commands without running them |
 | `-j N` | Parallel jobs (default: CPU count) |
 | `-h`, `--help` | Show usage |

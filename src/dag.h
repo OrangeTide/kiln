@@ -6,7 +6,7 @@
 
 enum {
 	NODE_FILE,
-	NODE_CMD
+	NODE_CMD,
 };
 
 /*
@@ -18,7 +18,7 @@ enum {
 	STATE_CLEAN,
 	STATE_BUILDING,
 	STATE_DONE,
-	STATE_FAILED
+	STATE_FAILED,
 };
 
 /* dag_edge is a singly-linked edge list used for both inputs and outputs. */

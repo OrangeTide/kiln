@@ -1,7 +1,7 @@
 .\" kiln.1 - kiln build system manual page
 .\" Copyright (c) 2025-2026 Jon Mayo <jon@rm-f.net>
 .\" Licensed under MIT OR Apache-2.0
-.TH KILN 1 "2026-03-16" "kiln" "User Commands"
+.TH KILN 1 "2026-11-02" "kiln" "User Commands"
 .SH NAME
 kiln \- a build system with Tcl-based build descriptions
 .SH SYNOPSIS
@@ -39,6 +39,16 @@ Set the target triplet explicitly, skipping
 .B cc \-dumpmachine
 detection.
 .TP
+.BI \-\-builddir " path"
+Set the build directory prefix for rule outputs.
+Rule outputs and depfiles are prefixed with
+.I path
+automatically, and inputs that name a known build output are resolved
+to the prefixed path.
+Overrides any
+.B builddir
+command in the Kilnfile.
+.TP
 .BI \-\-lib " file.tcl"
 Load a Tcl library file before evaluating Kilnfiles.
 May be specified multiple times; files are loaded in order.
@@ -50,6 +60,8 @@ Skip loading the built-in standard library
 Combine with
 .B \-\-lib
 to substitute a custom standard library.
+The bundled standard library is not yet shipped, so this option
+currently has no effect.
 .TP
 .BR \-n ", " \-\-dry\-run
 Print commands that would be executed without running them.
@@ -121,6 +133,15 @@ Read and evaluate another Tcl file.
 Searches the current directory first, then each directory in the
 .B $SourcePath
 variable.
+.TP
+.BI "builddir " path
+Set the build directory prefix for rule outputs and depfiles, and set
+the
+.B $BuildDir
+variable.
+A
+.B \-\-builddir
+flag on the command line takes precedence over this command.
 .SS Tcl Extensions
 .TP
 .BI "glob " "pattern ..."
@@ -161,6 +182,13 @@ was specified, otherwise
 .B $SourcePath
 Space-separated list of directories searched by
 .BR source .
+.TP
+.B $BuildDir
+The build directory prefix, set once
+.B builddir
+or
+.B \-\-builddir
+is used.
 .SH STALENESS DETECTION
 kiln uses a two-level check for each input file:
 .IP 1. 4
