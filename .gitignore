@@ -1,3 +1,5 @@
 /build
 examples/*/build
 examples/*/out
+/site/_site
+/site/public
