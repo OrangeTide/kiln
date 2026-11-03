@@ -67,10 +67,10 @@ currently has no effect.
 Print commands that would be executed without running them.
 .TP
 .BI \-j " N"
-Run up to
-.I N
-jobs in parallel.
+Set the maximum job count.
 Defaults to the number of online CPUs.
+Parallel execution is not yet implemented, so builds currently run one
+command at a time regardless of this value.
 .TP
 .BR \-h ", " \-\-help
 Print a usage summary and exit.
