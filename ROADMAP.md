@@ -190,9 +190,15 @@ which rules out `check`, `run`, and `install` as first-class targets.
 
 ## Phase 4: distribution and lifecycle
 
-15. **Install and packaging.** Add an `install` action with prefix and
-    `DESTDIR` support, and handle relocation: a path baked in at build time
-    with a runtime override, as the Makefile does for its include directory.
+15. **Install and packaging. (done)** An `install src dest` command records
+    what to install, and `kiln -a install` copies each output to
+    `$DESTDIR$prefix/dest` (via a new `kiln_copy_file` platform primitive),
+    creating directories and preserving the executable bit. `--prefix`
+    (default `/usr/local`) and `--destdir` (or the `DESTDIR` environment
+    variable) control the destination. For relocation, `$Prefix` is exported
+    so a Kilnfile bakes the install path into the build with `define_header`
+    (or a `-D` flag), and the program reads an environment override at
+    runtime, so a staged or relocated install still finds its files.
 
 16. **Version integration. (done)** `git_version base` packages the
     authoritative-file pattern from the project's git workflow: it refines a

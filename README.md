@@ -303,6 +303,41 @@ tagless checkout producing a sane version. This is the version pattern
 from kiln's own git workflow, packaged so each project need not re-derive
 it.
 
+## Install and Packaging
+
+Declare what to install with `install <output> <dest>`, where `dest` is a
+path relative to the install prefix:
+
+```tcl
+install app bin/app
+install app.1 share/man/man1/app.1
+```
+
+`kiln -a install` copies each output to `$DESTDIR$prefix/$dest`, creating
+directories and preserving the executable bit. The prefix defaults to
+`/usr/local` and is set with `--prefix`; `--destdir` (or the `DESTDIR`
+environment variable) prepends a staging root for packaging:
+
+```sh
+kiln                                   # build first
+kiln -a install                        # into /usr/local
+kiln --prefix /usr --destdir /tmp/pkg -a install   # staged for a package
+```
+
+Install copies already-built artifacts, so build before installing.
+
+For a program that must know a path chosen at build time, such as its data
+directory, bake the prefix in and let the program override it at runtime.
+`$Prefix` holds the active prefix, so a generated header carries it into
+the build:
+
+```tcl
+define_header build/$Triplet/paths.h DATADIR $Prefix/share/myapp
+```
+
+The program then uses `getenv("MYAPP_DATADIR")` when set and falls back to
+`DATADIR`, so a relocated or staged install still finds its files.
+
 ## How It Works
 
 1. **Parse** - evaluate Kilnfiles in a Tcl interpreter (Picol 2),
@@ -348,6 +383,9 @@ sh doc/gen-screenshot.sh
 | `-a clean` | Delete declared outputs and generated depfiles, then empty dirs |
 | `-a status` | Report out-of-date targets and stale database entries |
 | `-a explain` | Report why each out-of-date target would rebuild |
+| `-a install` | Copy `install`-declared outputs under the prefix |
+| `--prefix P` | Install prefix (default `/usr/local`) |
+| `--destdir P` | Staging root prepended on install (also `$DESTDIR`) |
 | `--triplet T` | Set target triplet (repeatable; skip `cc -dumpmachine`) |
 | `--variant V` | Set build variant (default `release`) |
 | `--builddir P` | Set build directory prefix for rule outputs |

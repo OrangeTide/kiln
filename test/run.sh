@@ -1247,6 +1247,56 @@ OUT=$("$KILN" --triplet t -a explain 2>&1)
 check_contains "explain: command change" "$OUT" "command changed"
 
 # =========================================================================
+printf "=== Install ===\n"
+# =========================================================================
+
+TIN="$TMPDIR/install"
+mkdir -p "$TIN"
+cd "$TIN"
+printf 'int main(void){return 0;}\n' > app.c
+printf 'data\n' > conf.txt
+cat > Kilnfile <<'EOF'
+builddir build/$Triplet
+cc_program app [glob *.c] "-O2"
+default app
+install app bin/app
+install conf.txt etc/app/conf.txt
+EOF
+"$KILN" --triplet t >/dev/null 2>&1
+
+# Install into a staging prefix.
+OUT=$("$KILN" --triplet t --prefix /usr --destdir "$TIN/stage" -a install 2>&1)
+check_contains "install: reports binary" "$OUT" "bin/app"
+check_file_exists "install: binary staged" "$TIN/stage/usr/bin/app"
+check_file_exists "install: data staged" "$TIN/stage/usr/etc/app/conf.txt"
+
+# The installed binary keeps its executable bit.
+if [ -x "$TIN/stage/usr/bin/app" ]; then
+    pass "install: binary is executable"
+else
+    fail "install: binary is executable"
+fi
+
+# DESTDIR from the environment is honored.
+DESTDIR="$TIN/stage2" "$KILN" --triplet t --prefix /usr -a install >/dev/null 2>&1
+check_file_exists "install: DESTDIR env honored" "$TIN/stage2/usr/bin/app"
+
+# $Prefix is exposed to the Kilnfile for baking paths in.
+cat > Kilnfile <<'EOF'
+puts "P=$Prefix"
+EOF
+OUT=$("$KILN" --triplet t --prefix /opt/x 2>&1)
+check_contains "install: Prefix variable exposed" "$OUT" "P=/opt/x"
+
+# With no install declarations the action is an error.
+cat > Kilnfile <<'EOF'
+rule app { command {sh -c "echo x > $out"} }
+EOF
+OUT=$("$KILN" --triplet t -a install 2>&1) && rc=0 || rc=$?
+check_contains "install: errors with nothing to install" "$OUT" "nothing to install"
+check "install: error exit status" "$rc" "1"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

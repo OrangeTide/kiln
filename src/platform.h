@@ -34,6 +34,13 @@ int kiln_unlink(const char *path);
 /* kiln_mkdir_p creates a directory and all parent directories. */
 int kiln_mkdir_p(const char *path);
 
+/*
+ * kiln_copy_file copies src to dst, overwriting dst, and preserves the
+ * source's permission bits (so an installed program keeps its +x). The
+ * destination directory must already exist. Returns OK or ERR.
+ */
+int kiln_copy_file(const char *src, const char *dst);
+
 /* kiln_rmdir removes an empty directory. Returns OK or ERR. */
 int kiln_rmdir(const char *path);
 

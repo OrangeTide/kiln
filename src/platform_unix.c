@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -79,6 +80,59 @@ int
 kiln_rmdir(const char *path)
 {
 	return rmdir(path);
+}
+
+int
+kiln_copy_file(const char *src, const char *dst)
+{
+	struct stat sb;
+	int in = open(src, O_RDONLY);
+
+	if (in < 0) return ERR;
+
+	if (fstat(in, &sb) != 0) {
+		close(in);
+		return ERR;
+	}
+
+	int out = open(dst, O_WRONLY | O_CREAT | O_TRUNC, sb.st_mode & 0777);
+
+	if (out < 0) {
+		close(in);
+		return ERR;
+	}
+
+	char buf[65536];
+	ssize_t n;
+	int ret = OK;
+
+	while ((n = read(in, buf, sizeof(buf))) > 0) {
+		ssize_t off = 0;
+
+		while (off < n) {
+			ssize_t w = write(out, buf + off, n - off);
+
+			if (w < 0) {
+				ret = ERR;
+				break;
+			}
+
+			off += w;
+		}
+
+		if (ret != OK) break;
+	}
+
+	if (n < 0) ret = ERR;
+
+	/* A fresh file keeps the source mode via open(); an overwritten one
+	 * may not, so set it explicitly. */
+	if (ret == OK)
+		fchmod(out, sb.st_mode & 0777);
+
+	close(in);
+	close(out);
+	return ret;
 }
 
 /* Directory iteration */

@@ -88,6 +88,15 @@ kiln_rmdir(const char *path)
 	return ERR;
 }
 
+int
+kiln_copy_file(const char *src, const char *dst)
+{
+	/* CopyFileA overwrites dst and carries the source's attributes. */
+	if (CopyFileA(src, dst, FALSE)) return OK;
+
+	return ERR;
+}
+
 /* Directory iteration */
 struct kiln_dir {
 	HANDLE h;

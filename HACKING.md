@@ -129,6 +129,14 @@ flag missing outputs, then walks the CDB with `cdb_iter_*` and reports
 any `cmd:<output>` key whose output is no longer a file node (its rule
 was removed).
 
+`kiln_install()` (in commands.c, where the `install` mapping list lives)
+copies each declared output to `$DESTDIR$prefix/<dest>`, creating the
+destination directory and preserving mode via the new platform primitive
+`kiln_copy_file`. A bare source name is resolved to its builddir-prefixed
+output the same way `inputs` are. Like the other actions it does not
+build, so artifacts must exist first; `$Prefix` is exported so a Kilnfile
+can bake the install path into the build for the relocation pattern.
+
 `build_explain()` reports *why* each target is out of date. It first
 computes direct dirtiness per command with `node_is_dirty` (same scratch
 writer), then propagates cascades in topological order: a command whose

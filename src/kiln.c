@@ -158,7 +158,9 @@ usage(void)
 	        "  --variant <name>     Set build variant (default: release)\n"
 	        "  --builddir <path>    Set build directory prefix for rule outputs\n"
 	        "  -a, --action <name>  Run a built-in action (clean, status,\n"
-	        "                       explain)\n"
+	        "                       explain, install)\n"
+	        "  --prefix <path>      Install prefix (default: /usr/local)\n"
+	        "  --destdir <path>     Staging root prepended on install ($DESTDIR)\n"
 	        "  --lib <file.tcl>     Load a Tcl library before Kilnfiles\n"
 	        "  --no-stdlib          Skip loading the built-in standard library\n"
 	        "  -n, --dry-run        Print commands without executing\n"
@@ -175,6 +177,8 @@ struct kiln_options {
 	const char *variant;
 	const char *builddir;    /* NULL unless --builddir was given */
 	const char *action;      /* NULL unless -a was given */
+	const char *prefix;      /* install prefix */
+	const char *destdir;     /* staging root prepended to prefix on install */
 	const char **libs;
 	int lib_count;
 	const char **files;
@@ -225,6 +229,7 @@ build_one(const char *triplet, const struct kiln_options *o)
 		picolSetVar(interp, "Jobs", buf);
 	}
 	picolSetVar(interp, "DryRun", o->dry_run ? "1" : "0");
+	picolSetVar(interp, "Prefix", (char *)o->prefix);
 
 	if (o->builddir)
 		picolSetVar(interp, "BuildDir", (char *)o->builddir);
@@ -325,6 +330,8 @@ build_one(const char *triplet, const struct kiln_options *o)
 			result = build_status(&graph, &cfg);
 		} else if (strcmp(o->action, "explain") == 0) {
 			result = build_explain(&graph, &cfg);
+		} else if (strcmp(o->action, "install") == 0) {
+			result = kiln_install(&graph, o->prefix, o->destdir);
 		} else {
 			fprintf(stderr, "kiln: unknown action '%s'\n", o->action);
 			result = 1;
@@ -363,6 +370,9 @@ main(int argc, char **argv)
 	o.variant = "release";
 	o.builddir = NULL;
 	o.action = NULL;
+	o.prefix = "/usr/local";
+	o.destdir = getenv("DESTDIR");
+	if (!o.destdir) o.destdir = "";
 	o.no_stdlib = 0;
 	o.dry_run = 0;
 	o.jobs = 0;
@@ -379,6 +389,10 @@ main(int argc, char **argv)
 			o.variant = argv[++i];
 		} else if (strcmp(argv[i], "--builddir") == 0 && i + 1 < argc) {
 			o.builddir = argv[++i];
+		} else if (strcmp(argv[i], "--prefix") == 0 && i + 1 < argc) {
+			o.prefix = argv[++i];
+		} else if (strcmp(argv[i], "--destdir") == 0 && i + 1 < argc) {
+			o.destdir = argv[++i];
 		} else if ((strcmp(argv[i], "-f") == 0 ||
 		            strcmp(argv[i], "--file") == 0) && i + 1 < argc) {
 			if (file_count >= MAX_LIBS) {

@@ -549,6 +549,15 @@ struct kiln_alias {
 static struct kiln_alias *g_aliases;
 static char *g_default;        // space-separated default target names
 
+/* Install mappings: a build output and where it goes under the prefix. */
+struct kiln_install {
+	char *src;             // build output to install
+	char *dest;            // destination path relative to the prefix
+	struct kiln_install *next;
+};
+
+static struct kiln_install *g_installs;
+
 /* Append a word to a space-separated list, no builddir resolution. */
 static void
 append_word(char **dst, const char *w)
@@ -625,6 +634,110 @@ kiln_get_default(void)
 	return g_default;
 }
 
+/**
+ * install src dest
+ *
+ * Record that the build output src is installed to dest, a path relative
+ * to the install prefix. The `install` action copies it there.
+ */
+static int
+cmd_install(struct picolInterp *i, int argc, char **argv,
+            struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc != 3) return picolArityErr(i, argv[0]);
+
+	struct kiln_install *n = xmalloc(sizeof(*n));
+	n->src = xstrdup(argv[1]);
+	n->dest = xstrdup(argv[2]);
+	n->next = g_installs;
+	g_installs = n;
+	return PICOL_OK;
+}
+
+/*
+ * kiln_install copies every declared install mapping to its destination
+ * under destdir + prefix, creating directories and preserving modes. src
+ * is resolved against the build directory the same way inputs are, so a
+ * bare output name works. Returns 0 on success, 1 if any copy failed.
+ */
+int
+kiln_install(struct dag *g, const char *prefix, const char *destdir)
+{
+	if (!g_installs) {
+		fprintf(stderr, "kiln: nothing to install "
+		        "(no 'install' declarations)\n");
+		return 1;
+	}
+
+	int failed = 0;
+
+	/* Reverse into declaration order for stable, readable output. */
+	struct kiln_install *rev = NULL;
+
+	for (struct kiln_install *n = g_installs; n; n = n->next) {
+		struct kiln_install *c = xmalloc(sizeof(*c));
+		c->src = n->src;
+		c->dest = n->dest;
+		c->next = rev;
+		rev = c;
+	}
+
+	for (struct kiln_install *n = rev; n;) {
+		/* Resolve src to the built file: a bare name becomes the
+		 * builddir-prefixed output when that names a known node. */
+		char *resolved = NULL;
+
+		if (g_builddir && g_builddir[0]) {
+			char *prefixed = builddir_prefix(n->src);
+
+			if (dag_find_file(g, prefixed) >= 0)
+				resolved = prefixed;
+			else
+				free(prefixed);
+		}
+
+		const char *src = resolved ? resolved : n->src;
+
+		char dst[4096];
+		snprintf(dst, sizeof(dst), "%s%s/%s", destdir, prefix, n->dest);
+
+		/* Create the destination directory. */
+		const char *last_sep = NULL;
+
+		for (const char *p = dst; *p; p++)
+			if (*p == '/') last_sep = p;
+
+		if (last_sep) {
+			char dir[4096];
+			size_t dlen = last_sep - dst;
+
+			if (dlen < sizeof(dir)) {
+				memcpy(dir, dst, dlen);
+				dir[dlen] = '\0';
+				kiln_mkdir_p(dir);
+			}
+		}
+
+		if (kiln_copy_file(src, dst) == OK) {
+			printf("%sinstall%s %s -> %s\n",
+			       term_green(), term_reset(), src, dst);
+		} else {
+			fprintf(stderr, "%skiln: cannot install %s -> %s%s\n",
+			        term_red(), src, dst, term_reset());
+			failed = 1;
+		}
+
+		free(resolved);
+
+		struct kiln_install *next = n->next;
+		free(n);
+		n = next;
+	}
+
+	return failed ? 1 : 0;
+}
+
 /* kiln_free_commands releases alias and default storage. */
 void
 kiln_free_commands(void)
@@ -642,6 +755,18 @@ kiln_free_commands(void)
 	g_aliases = NULL;
 	free(g_default);
 	g_default = NULL;
+
+	struct kiln_install *n = g_installs;
+
+	while (n) {
+		struct kiln_install *next = n->next;
+		free(n->src);
+		free(n->dest);
+		free(n);
+		n = next;
+	}
+
+	g_installs = NULL;
 }
 
 /***************************************************************************
@@ -654,6 +779,7 @@ kiln_register_commands(struct picolInterp *i)
 	picolRegisterCommand(i, "phony", cmd_phony);
 	picolRegisterCommand(i, "default", cmd_default);
 	picolRegisterCommand(i, "alias", cmd_alias);
+	picolRegisterCommand(i, "install", cmd_install);
 	picolRegisterCommand(i, "source", cmd_source);
 	picolRegisterCommand(i, "builddir", cmd_builddir);
 }

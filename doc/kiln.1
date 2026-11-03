@@ -79,6 +79,19 @@ selector uses to choose flags and a build directory.
 Defaults to
 .BR release .
 .TP
+.BI \-\-prefix " path"
+Set the install prefix used by the
+.B install
+action.
+Defaults to
+.IR /usr/local .
+.TP
+.BI \-\-destdir " path"
+Prepend a staging root to the install prefix, for packaging.
+Defaults to the
+.B DESTDIR
+environment variable, or empty.
+.TP
 .BI \-\-builddir " path"
 Set the build directory prefix for rule outputs.
 Rule outputs and depfiles are prefixed with
@@ -141,6 +154,20 @@ Unlike
 .BR status ,
 this includes targets that are out of date only because something they
 depend on will be rebuilt, so the set matches what a build would run.
+.TP
+.B install
+Copy each output named by an
+.B install
+command to
+.IR $DESTDIR$prefix/<dest> ,
+creating directories and preserving the executable bit.
+Installs already-built artifacts, so build first.
+The prefix comes from
+.B \-\-prefix
+and the staging root from
+.B \-\-destdir
+or
+.BR $DESTDIR .
 .SH KILNFILE SYNTAX
 Build descriptions are Tcl scripts.
 kiln extends the Tcl interpreter with the following commands:
@@ -207,6 +234,16 @@ to a list of targets, so one argument can stand for many.
 An alias may refer to other aliases;
 .B kiln
 expands them until it reaches real targets.
+.TP
+.BI "install " "src dest"
+Record that the build output
+.I src
+is installed to
+.IR dest ,
+a path relative to the install prefix.
+The
+.B install
+action copies it there.
 .TP
 .BI "source " filename
 Read and evaluate another Tcl file.
@@ -300,6 +337,13 @@ The target triplet string.
 .B $Variant
 The active build variant, set by
 .BR \-\-variant .
+.TP
+.B $Prefix
+The install prefix, set by
+.BR \-\-prefix .
+Bake it into a build (for example with
+.BR define_header )
+to record a path chosen at build time.
 .TP
 .B $Jobs
 Number of parallel jobs.
