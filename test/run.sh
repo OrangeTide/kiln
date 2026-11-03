@@ -351,6 +351,43 @@ OUT=$("$KILN" --triplet test Kilnfile 2>&1)
 check_contains "cmd same: no-op" "$OUT" "nothing to do"
 
 # =========================================================================
+printf "=== Build: parallel (-j) ===\n"
+# =========================================================================
+
+TP="$TMPDIR/par"
+mkdir -p "$TP"
+
+cat > "$TP/a.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$TP/b.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$TP/Kilnfile" <<'EOF'
+rule a {
+    inputs a.c
+    command {cc -o $out $in}
+}
+rule b {
+    inputs b.c
+    command {cc -o $out $in}
+}
+EOF
+
+cd "$TP"
+
+OUT=$("$KILN" --triplet test -j 4 Kilnfile 2>&1)
+check_contains "parallel build count" "$OUT" "built 2 targets"
+check_file_exists "parallel build: a" "$TP/a"
+check_file_exists "parallel build: b" "$TP/b"
+
+OUT=$("$KILN" --triplet test -j 4 Kilnfile 2>&1)
+check_contains "parallel no-op rebuild" "$OUT" "nothing to do"
+
+OUT=$("$KILN" --triplet test -j 1 Kilnfile 2>&1)
+check_contains "serial (-j 1) no-op" "$OUT" "nothing to do"
+
+# =========================================================================
 printf "=== Build: delete outputs on failure ===\n"
 # =========================================================================
 

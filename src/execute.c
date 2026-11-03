@@ -463,6 +463,100 @@ node_is_dirty(struct dag *g, struct dag_node *n,
 	return dirty;
 }
 
+/* Record a successfully built command's new state into the CDB writer:
+ * its command hash, any depfile-discovered implicit deps, and the stat
+ * plus content hash of every output and explicit input. */
+static void
+record_built(struct dag *g, struct dag_node *n, struct cdb *old_db,
+             struct cdb_writer *new_db, const char *first_output,
+             uint32_t cmd_hash)
+{
+	char key[4096];
+
+	if (first_output) {
+		snprintf(key, sizeof(key), "cmd:%s", first_output);
+		cdb_writer_add(new_db, key, strlen(key),
+		               &cmd_hash, sizeof(cmd_hash));
+		store_depfile_deps(new_db, old_db, first_output, n->depfile);
+	}
+
+	for (struct dag_edge *e = n->outputs; e; e = e->next) {
+		struct dag_node *out = g->nodes[e->node_id];
+
+		if (out->type != NODE_FILE) continue;
+
+		struct kiln_stat st;
+
+		if (kiln_stat_file(out->name, &st) != OK) continue;
+
+		struct stored_stat ss;
+		stat_to_stored(&st, &ss);
+		snprintf(key, sizeof(key), "stat:%s", out->name);
+		cdb_writer_add(new_db, key, strlen(key), &ss, sizeof(ss));
+
+		uint32_t h;
+
+		if (hash_file(out->name, &h) == OK) {
+			snprintf(key, sizeof(key), "hash:%s", out->name);
+			cdb_writer_add(new_db, key, strlen(key), &h, sizeof(h));
+		}
+	}
+
+	/* Snapshot explicit inputs so their state is in the new DB even when
+	 * node_is_dirty short-circuited before checking them. */
+	for (struct dag_edge *e = n->inputs; e; e = e->next) {
+		struct dag_node *in = g->nodes[e->node_id];
+
+		if (in->type == NODE_FILE)
+			file_is_dirty(in->name, old_db, new_db);
+	}
+}
+
+/*
+ * The scheduler tracks, for each command node, how many producer commands
+ * it is still waiting on (pending). A command is ready when pending hits 0.
+ * sched_complete is called when a command finishes: it walks that command's
+ * consumers and decrements their pending counts, pushing any that reach 0
+ * onto the ready stack.
+ *
+ * mark/epoch deduplicate the consumer walk so a command that consumes two
+ * outputs of the finished node is only decremented once.
+ */
+static void
+sched_complete(struct dag *g, struct dag_node *n, int *mark, int *epoch,
+               int *pending, int *ready, int *ready_count)
+{
+	(*epoch)++;
+
+	for (struct dag_edge *e = n->outputs; e; e = e->next) {
+		struct dag_node *f = g->nodes[e->node_id];
+
+		if (f->type != NODE_FILE) continue;
+
+		for (struct dag_edge *ce = f->outputs; ce; ce = ce->next) {
+			struct dag_node *c = g->nodes[ce->node_id];
+
+			if (c->type != NODE_CMD || mark[c->id] == *epoch) continue;
+
+			mark[c->id] = *epoch;
+
+			if (--pending[c->id] == 0)
+				ready[(*ready_count)++] = c->id;
+		}
+	}
+}
+
+/*
+ * A running job: the command node, the staleness data computed when it was
+ * dispatched, and its child process handle.
+ */
+struct build_job {
+	struct dag_node *n;
+	const char *first_output;
+	uint32_t cmd_hash;
+	kiln_proc *proc;
+};
+
 int
 build_execute(struct dag *g, struct build_config *cfg)
 {
@@ -477,139 +571,155 @@ build_execute(struct dag *g, struct build_config *cfg)
 	struct cdb_writer new_db;
 	cdb_writer_init(&new_db);
 
-	int failed = 0;
-	int built = 0;
+	int jobs = cfg->jobs > 0 ? cfg->jobs : 1;
 
-	// Count total commands for progress
+	/*
+	 * Readiness bookkeeping, indexed by node id (entries for FILE nodes
+	 * are unused). pending[c] counts the distinct producer commands that
+	 * command c still waits on; mark/epoch dedup the dependency walks.
+	 */
+	int *pending = xmalloc(sizeof(int) * g->count);
+	int *mark = xmalloc(sizeof(int) * g->count);
+	int *ready = xmalloc(sizeof(int) * g->count);
+	int ready_count = 0;
+	int epoch = 0;
 	int total_cmds = 0;
-	for (int i = 0; i < g->order_count; i++) {
-		if (g->nodes[g->order[i]]->type == NODE_CMD)
-			total_cmds++;
-	}
 
-	int cmd_index = 0;
+	for (int i = 0; i < g->count; i++)
+		mark[i] = 0;
 
-	for (int i = 0; i < g->order_count; i++) {
-		struct dag_node *n = g->nodes[g->order[i]];
+	/* Compute each command's producer count and seed the ready stack. */
+	for (int i = 0; i < g->count; i++) {
+		struct dag_node *n = g->nodes[i];
 
 		if (n->type != NODE_CMD) continue;
 
-		cmd_index++;
+		total_cmds++;
+		epoch++;
+		int preds = 0;
 
-		const char *first_output;
-		uint32_t cmd_hash;
+		for (struct dag_edge *e = n->inputs; e; e = e->next) {
+			struct dag_node *f = g->nodes[e->node_id];
 
-		if (!node_is_dirty(g, n, &old_db, have_old_db, &new_db,
-		                   &first_output, &cmd_hash)) {
-			n->state = STATE_DONE;
-			continue;
+			if (f->type != NODE_FILE) continue;
+
+			for (struct dag_edge *pe = f->inputs; pe; pe = pe->next) {
+				struct dag_node *p = g->nodes[pe->node_id];
+
+				if (p->type != NODE_CMD || mark[p->id] == epoch)
+					continue;
+
+				mark[p->id] = epoch;
+				preds++;
+			}
 		}
 
-		/* Execute */
-		if (cfg->dry_run) {
-			printf("%s\n", n->command);
-			n->state = STATE_DONE;
-			continue;
+		pending[n->id] = preds;
+
+		if (preds == 0)
+			ready[ready_count++] = n->id;
+	}
+
+	struct build_job *run = xmalloc(sizeof(struct build_job) * jobs);
+	int nrun = 0;
+	int cmd_index = 0;
+	int built = 0;
+	int failed = 0;
+
+	/*
+	 * Run the DAG. Dispatch ready commands into free job slots up to the
+	 * -j limit, then reap the oldest running job. Reaping in dispatch
+	 * (FIFO) order keeps the scheduler simple and needs no platform
+	 * wait-for-any; a slow job at the head can leave finished jobs
+	 * unreaped, so a poll-based wait-any is a future optimization.
+	 */
+	while (ready_count > 0 || nrun > 0) {
+		while (!failed && nrun < jobs && ready_count > 0) {
+			struct dag_node *n = g->nodes[ready[--ready_count]];
+			const char *first_output;
+			uint32_t cmd_hash;
+
+			cmd_index++;
+
+			if (!node_is_dirty(g, n, &old_db, have_old_db, &new_db,
+			                   &first_output, &cmd_hash)) {
+				n->state = STATE_DONE;
+				sched_complete(g, n, mark, &epoch, pending,
+				               ready, &ready_count);
+				continue;
+			}
+
+			if (cfg->dry_run) {
+				printf("%s\n", n->command);
+				n->state = STATE_DONE;
+				sched_complete(g, n, mark, &epoch, pending,
+				               ready, &ready_count);
+				continue;
+			}
+
+			term_progress(cmd_index, total_cmds, n->command);
+
+			kiln_proc *proc;
+
+			if (kiln_spawn(&proc, n->command, NULL) != OK) {
+				term_clear_progress();
+				fprintf(stderr, "%skiln: failed to spawn:%s %s\n",
+				        term_red(), term_reset(), n->command);
+				failed = 1;
+				break;
+			}
+
+			run[nrun].n = n;
+			run[nrun].first_output = first_output;
+			run[nrun].cmd_hash = cmd_hash;
+			run[nrun].proc = proc;
+			nrun++;
 		}
 
-		term_progress(cmd_index, total_cmds, n->command);
+		if (nrun == 0) break; /* nothing in flight: done or failed */
 
-		kiln_proc *proc;
+		/* Reap the oldest running job, then shift the queue down. */
+		struct build_job j = run[0];
 
-		if (kiln_spawn(&proc, n->command, NULL) != OK) {
-			term_clear_progress();
-			fprintf(stderr, "%skiln: failed to spawn:%s %s\n",
-			        term_red(), term_reset(), n->command);
-			failed = 1;
-			break;
-		}
+		for (int k = 1; k < nrun; k++)
+			run[k - 1] = run[k];
+
+		nrun--;
 
 		int exitcode;
-		kiln_wait(proc, &exitcode);
+		kiln_wait(j.proc, &exitcode);
 
 		const char *out;
 		size_t outlen;
-		kiln_proc_output(proc, &out, &outlen);
+		kiln_proc_output(j.proc, &out, &outlen);
 
 		if (outlen > 0) {
 			term_clear_progress();
 			fwrite(out, 1, outlen, exitcode == 0 ? stdout : stderr);
 		}
 
-		kiln_proc_free(proc);
+		kiln_proc_free(j.proc);
 
 		if (exitcode != 0) {
 			term_clear_progress();
 			fprintf(stderr, "%skiln: command failed with exit code %d%s\n",
 			        term_red(), exitcode, term_reset());
-			delete_outputs(g, n);
-			n->state = STATE_FAILED;
+			delete_outputs(g, j.n);
+			j.n->state = STATE_FAILED;
 			failed = 1;
-			break;
+			continue; /* stop dispatching; drain remaining jobs */
 		}
 
-		n->state = STATE_BUILDING; /* Marks "executed this run" */
+		j.n->state = STATE_BUILDING; /* marks "executed this run" */
 		built++;
-
-		/* Record new state in CDB */
-		if (first_output) {
-			char key[4096];
-			snprintf(key, sizeof(key), "cmd:%s", first_output);
-			cdb_writer_add(&new_db, key, strlen(key),
-			               &cmd_hash, sizeof(cmd_hash));
-
-			/* Store depfile deps if applicable */
-			store_depfile_deps(&new_db, &old_db, first_output, n->depfile);
-		}
-
-		/* Update stat + hash for all outputs */
-		{
-			struct dag_edge *e = n->outputs;
-
-			while (e) {
-				struct dag_node *outnode = g->nodes[e->node_id];
-
-				if (outnode->type == NODE_FILE) {
-					struct kiln_stat st;
-
-					if (kiln_stat_file(outnode->name, &st) == OK) {
-						struct stored_stat ss;
-						stat_to_stored(&st, &ss);
-						char key[4096];
-						snprintf(key, sizeof(key), "stat:%s", outnode->name);
-						cdb_writer_add(&new_db, key, strlen(key),
-						               &ss, sizeof(ss));
-						uint32_t h;
-
-						if (hash_file(outnode->name, &h) == OK) {
-							snprintf(key, sizeof(key), "hash:%s", outnode->name);
-							cdb_writer_add(&new_db, key, strlen(key),
-							               &h, sizeof(h));
-						}
-					}
-				}
-
-				e = e->next;
-			}
-		}
-
-		/* Also snapshot inputs that we haven't checked yet */
-		{
-			struct dag_edge *e = n->inputs;
-
-			while (e) {
-				struct dag_node *in = g->nodes[e->node_id];
-
-				if (in->type == NODE_FILE) {
-					/* file_is_dirty already adds to new_db, but if we
-					 * didn't call it (cmd_dirty short-circuit), do it now */
-					file_is_dirty(in->name, &old_db, &new_db);
-				}
-
-				e = e->next;
-			}
-		}
+		record_built(g, j.n, &old_db, &new_db, j.first_output, j.cmd_hash);
+		sched_complete(g, j.n, mark, &epoch, pending, ready, &ready_count);
 	}
+
+	free(pending);
+	free(mark);
+	free(ready);
+	free(run);
 
 	/* Write new CDB */
 	if (!cfg->dry_run) {

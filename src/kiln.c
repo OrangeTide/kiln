@@ -227,6 +227,7 @@ main(int argc, char **argv)
 	cfg.build_dir = build_dir;
 	cfg.cdb_path = cdb_path;
 	cfg.dry_run = dry_run;
+	cfg.jobs = jobs;
 
 	/* Dispatch action or build */
 	int result = 0;

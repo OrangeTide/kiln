@@ -38,13 +38,14 @@ than the equivalent Makefile fragment, kiln has met its goal.
 These items close gaps between what kiln advertises and what it does. They
 come first because later phases depend on them.
 
-1. **Parallel execution.** `build_execute` runs strictly one command at a
-   time; `-j` and `$Jobs` are accepted but ignored, and the README and man
-   page claim parallel execution. Implement a job scheduler that walks the
-   DAG, runs up to `N` ready commands at once, and preserves output grouping
-   per command. Until this lands, correct the docs to not promise it.
-   - Done when: a build with independent subtrees runs them concurrently and
-     `-j1` matches today's behavior, verified by the test suite.
+1. **Parallel execution. (done)** A job scheduler in `execute.c` walks the
+   DAG by producer-count readiness and runs up to `-j N` ready commands at
+   once (default: CPU count), printing each command's captured output as a
+   group. `-j 1` reproduces the old sequential behavior. The orchestrator is
+   single-threaded, so the DAG and CDB are never touched concurrently; only
+   the shell commands run in parallel. Jobs are reaped in dispatch order,
+   which is simple and needs no platform wait-for-any; a poll-based wait-any,
+   so a slow job cannot hold finished slots idle, is a future optimization.
 
 2. **Tool-binary staleness.** Staleness hashes the command string only, so
    rebuilding an in-tree compiler or assembler does not re-run the commands

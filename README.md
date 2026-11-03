@@ -129,7 +129,7 @@ sh doc/gen-screenshot.sh
 | `--lib F` | Load a Tcl library before Kilnfiles (repeatable) |
 | `--no-stdlib` | Skip the built-in standard library *(not yet bundled)* |
 | `-n`, `--dry-run` | Print commands without running them |
-| `-j N` | Max job count (default: CPU count); parallel execution is not yet implemented, see [ROADMAP](ROADMAP.md) |
+| `-j N` | Run up to N commands in parallel (default: CPU count) |
 | `-h`, `--help` | Show usage |
 
 ## Environment Variables

@@ -11,6 +11,7 @@ struct build_config {
 	const char *build_dir;  /* e.g. "build/x86_64-linux-gnu" */
 	const char *cdb_path;   /* e.g. "build/x86_64-linux-gnu/kiln.cdb" */
 	int dry_run;
+	int jobs;               /* max commands to run at once (>= 1) */
 };
 
 /* build_execute runs the build plan. Returns 0 on success, 1 on failure. */
