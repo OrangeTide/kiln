@@ -254,9 +254,17 @@ which rules out `check`, `run`, and `install` as first-class targets.
     and `[cmd]` still expand. Backslash handling still follows Tcl
     double-quote rules; revisit if that proves surprising.
 
-20. **Scale.** Benchmark and tune for the thousands of nodes a real toolchain
-    build reaches. The open-addressing name table and CDB should hold up;
-    confirm it and fix what does not.
+20. **Scale. (done)** Benchmark and tune for the thousands of nodes a real
+    toolchain build reaches. `bin/bench.sh` generates synthetic projects with
+    trivial commands (so the numbers reflect kiln, not the compiler) and times
+    each phase. The name table, CDB, and scheduler scale linearly: parse plus
+    plan and the incremental no-op are both well under a second at 40000 flat
+    nodes, and memory is roughly 1.3 KB per node. One defect turned up and was
+    fixed: the topological sort and the target-cone walk were recursive and
+    overflowed the C stack on a deep dependency chain (around 40000 deep on a
+    default 8 MB stack). Both are now iterative with an explicit stack, so
+    depth is bounded only by memory; a 200000-deep chain plans in under two
+    seconds. A regression test covers the deep chain and a deep cycle.
 
 ## Cross-cutting
 

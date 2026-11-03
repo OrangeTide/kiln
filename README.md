@@ -342,7 +342,8 @@ The program then uses `getenv("MYAPP_DATADIR")` when set and falls back to
 
 1. **Parse** - evaluate Kilnfiles in a Tcl interpreter (Picol 2),
    building a DAG of file and command nodes
-2. **Sort** - topological sort with cycle detection
+2. **Sort** - iterative topological sort with cycle detection (no
+   recursion, so a deep dependency chain cannot overflow the stack)
 3. **Execute** - walk the DAG in order, checking each command for
    staleness before running it
 

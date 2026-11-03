@@ -236,55 +236,22 @@ dag_add_edge(struct dag *g, int from_id, int to_id)
 }
 
 /*
- * DFS-based cycle detection and topological sort. path holds the ids
- * currently on the recursion stack; on a back edge the cycle is the path
- * suffix from the revisited node to the tail, recorded into cycle.
+ * A frame in the explicit DFS stack: the node being visited and the next
+ * outgoing edge to follow. The frame stack doubles as the recursion path,
+ * so a back edge reconstructs the cycle directly from it.
  */
-static int
-dfs_visit(struct dag *g, int id, int *stack, int *sp,
-          int *path, int *path_len, int *cycle, int *cycle_len)
-{
-	struct dag_node *n = g->nodes[id];
+struct dfs_frame {
+	int id;
+	struct dag_edge *edge;
+};
 
-	if (n->visited == 1) {
-		/* Back edge: id is on the current path. */
-		int start = 0;
-
-		for (int k = 0; k < *path_len; k++)
-			if (path[k] == id) {
-				start = k;
-				break;
-			}
-
-		*cycle_len = 0;
-
-		for (int k = start; k < *path_len; k++)
-			cycle[(*cycle_len)++] = path[k];
-
-		return ERR;
-	}
-
-	if (n->visited == 2) return OK; /* Already processed */
-
-	n->visited = 1; /* Mark in-progress */
-	path[(*path_len)++] = id;
-
-	struct dag_edge *e = n->outputs;
-
-	while (e) {
-		if (dfs_visit(g, e->node_id, stack, sp, path, path_len,
-		              cycle, cycle_len) != OK)
-			return ERR;
-
-		e = e->next;
-	}
-
-	n->visited = 2; /* Done */
-	(*path_len)--;  /* pop from the recursion path */
-	stack[(*sp)++] = id;
-	return OK;
-}
-
+/*
+ * Iterative DFS topological sort with cycle detection. An explicit stack
+ * is used rather than recursion so a deep dependency chain cannot overflow
+ * the C call stack. visited is tri-state: 0 unvisited, 1 on the current
+ * path (gray), 2 finished (black). A back edge to a gray node is a cycle;
+ * its path is the frame stack from that node to the top, written to cycle.
+ */
 int
 dag_topo_sort(struct dag *g, int *cycle, int *cycle_len)
 {
@@ -292,37 +259,79 @@ dag_topo_sort(struct dag *g, int *cycle, int *cycle_len)
 	g->order = xmalloc(sizeof(int) * g->count);
 	g->order_count = 0;
 
+	*cycle_len = 0;
+
 	for (int i = 0; i < g->count; i++)
 		g->nodes[i]->visited = 0;
 
-	int sp = 0;
-	int *path = xmalloc(sizeof(int) * g->count);
-	int path_len = 0;
+	if (g->count <= 0) return OK;
 
-	*cycle_len = 0;
+	struct dfs_frame *frames = xmalloc(sizeof(*frames) * g->count);
+	int sp = 0;   /* frame stack depth */
+	int osp = 0;  /* finished-node (output) stack depth */
 
-	for (int i = 0; i < g->count; i++) {
-		if (g->nodes[i]->visited == 0) {
-			path_len = 0;
+	for (int start = 0; start < g->count; start++) {
+		if (g->nodes[start]->visited != 0) continue;
 
-			if (dfs_visit(g, i, g->order, &sp, path, &path_len,
-			              cycle, cycle_len) != OK) {
-				free(path);
-				return ERR;
+		g->nodes[start]->visited = 1;
+		frames[sp].id = start;
+		frames[sp].edge = g->nodes[start]->outputs;
+		sp++;
+
+		while (sp > 0) {
+			struct dfs_frame *f = &frames[sp - 1];
+
+			if (f->edge) {
+				int to = f->edge->node_id;
+				f->edge = f->edge->next;
+
+				struct dag_node *tn = g->nodes[to];
+
+				if (tn->visited == 1) {
+					/* Back edge: cycle from `to` up the stack. */
+					int s = 0;
+
+					for (int k = 0; k < sp; k++)
+						if (frames[k].id == to) {
+							s = k;
+							break;
+						}
+
+					*cycle_len = 0;
+
+					for (int k = s; k < sp; k++)
+						cycle[(*cycle_len)++] = frames[k].id;
+
+					free(frames);
+					return ERR;
+				}
+
+				if (tn->visited == 0) {
+					tn->visited = 1;
+					frames[sp].id = to;
+					frames[sp].edge = tn->outputs;
+					sp++;
+				}
+				/* visited == 2: already finished, skip. */
+			} else {
+				/* No more edges: finish this node (post-order). */
+				g->nodes[f->id]->visited = 2;
+				g->order[osp++] = f->id;
+				sp--;
 			}
 		}
 	}
 
-	free(path);
+	free(frames);
 
-	/* Reverse the stack to get dependency order */
-	for (int i = 0; i < sp / 2; i++) {
+	/* Reverse the post-order to get dependency order */
+	for (int i = 0; i < osp / 2; i++) {
 		int tmp = g->order[i];
-		g->order[i] = g->order[sp - 1 - i];
-		g->order[sp - 1 - i] = tmp;
+		g->order[i] = g->order[osp - 1 - i];
+		g->order[osp - 1 - i] = tmp;
 	}
 
-	g->order_count = sp;
+	g->order_count = osp;
 	return OK;
 }
 

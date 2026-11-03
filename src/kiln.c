@@ -62,17 +62,36 @@ eval_file(struct picolInterp *interp, const char *path)
 
 /*
  * mark_cone marks a node and its entire upstream cone (everything it
- * depends on, transitively) in the needed array.
+ * depends on, transitively) in the needed array. The walk uses an explicit
+ * stack rather than recursion so a deep dependency chain cannot overflow
+ * the C call stack. Each node is marked before being pushed, so it enters
+ * the stack at most once and the stack never exceeds g->count.
  */
 static void
 mark_cone(struct dag *g, int id, int *needed)
 {
 	if (needed[id]) return;
 
-	needed[id] = 1;
+	int *stack = xmalloc(sizeof(int) * g->count);
+	int sp = 0;
 
-	for (struct dag_edge *e = g->nodes[id]->inputs; e; e = e->next)
-		mark_cone(g, e->node_id, needed);
+	needed[id] = 1;
+	stack[sp++] = id;
+
+	while (sp > 0) {
+		int cur = stack[--sp];
+
+		for (struct dag_edge *e = g->nodes[cur]->inputs; e; e = e->next) {
+			int to = e->node_id;
+
+			if (!needed[to]) {
+				needed[to] = 1;
+				stack[sp++] = to;
+			}
+		}
+	}
+
+	free(stack);
 }
 
 static int select_target(struct dag *g, const char *name, int *needed);

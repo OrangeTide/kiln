@@ -1322,6 +1322,46 @@ check_contains "install: errors with nothing to install" "$OUT" "nothing to inst
 check "install: error exit status" "$rc" "1"
 
 # =========================================================================
+printf "=== Scale ===\n"
+# =========================================================================
+
+# A deep dependency chain must not overflow the stack. The topological
+# sort and the target-cone walk are iterative; a recursive version crashed
+# around this depth on a default 8 MB stack. The chain is generated with a
+# Tcl loop so the Kilnfile stays small. expr is avoided on purpose: this
+# Picol does not substitute variables inside expr braces.
+TSC="$TMPDIR/scale"
+mkdir -p "$TSC"
+cd "$TSC"
+echo seed > f0.in
+cat > Kilnfile <<'EOF'
+rule f1.out {
+    inputs f0.in
+    command {cp $in $out}
+}
+set prev 1
+for {set i 2} {$i <= 50000} {incr i} {
+    rule f$i.out "inputs f$prev.out\ncommand {cp \$in \$out}"
+    set prev $i
+}
+EOF
+OUT=$("$KILN" --triplet t -n f50000.out 2>&1) && rc=0 || rc=$?
+check "scale: deep chain does not crash" "$rc" "0"
+check_contains "scale: deep chain head" "$OUT" "cp f0.in f1.out"
+check_contains "scale: deep chain tail" "$OUT" "cp f49999.out f50000.out"
+
+# A cycle in a deep chain reports, iteratively, without crashing.
+cat >> Kilnfile <<'EOF'
+rule f1.out {
+    inputs f50000.out
+    command {cp $in $out}
+}
+EOF
+OUT=$("$KILN" --triplet t -n f50000.out 2>&1) && rc=0 || rc=$?
+check "scale: deep cycle detected exit" "$rc" "1"
+check_contains "scale: deep cycle reported" "$OUT" "dependency cycle detected"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

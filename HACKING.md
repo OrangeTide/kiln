@@ -84,12 +84,34 @@ Tcl commands use picol's own convention: `PICOL_OK` / `PICOL_ERR`.
   counter), then call `dag_set_def` so each command node remembers where its
   rule was defined. `build_execute` prints that `rule at: file:line` on a
   build or spawn failure.
-- `dag_topo_sort` records the full cycle, not a single node. `dfs_visit`
-  keeps the ids on the current recursion path; on a back edge it copies the
-  path suffix from the revisited node into the caller's `cycle` buffer and
-  sets `cycle_len`. `build_one` prints the named nodes on that path, closing
-  the loop back to the first. Command nodes have no name and are skipped, so
-  the report reads as a chain of files and phony targets.
+- `dag_topo_sort` records the full cycle, not a single node. It walks the
+  graph with an explicit stack of `dfs_frame`s rather than recursion, so a
+  deep dependency chain cannot overflow the C call stack. The frame stack
+  doubles as the recursion path: on a back edge to a gray node (`visited ==
+  1`) the cycle is the frames from that node up to the top, copied into the
+  caller's `cycle` buffer with `cycle_len` set. `build_one` prints the named
+  nodes on that path, closing the loop back to the first. Command nodes have
+  no name and are skipped, so the report reads as a chain of files and phony
+  targets.
+- `mark_cone` (kiln.c) is iterative for the same reason: it walks a target's
+  upstream cone with an explicit stack, marking each node before pushing it
+  so the stack never exceeds `g->count`.
+
+## Scale
+
+The DAG name table (open-addressing), the CDB, and the scheduler are all
+O(V + E), so a build scales linearly in node count. `bin/bench.sh` generates
+synthetic projects with trivial `cp`/`cat` commands (to measure kiln, not the
+compiler) in two shapes, flat (many independent rules) and chain (one deep
+dependency line), and times parse-plus-plan, first build, and the incremental
+no-op at each size:
+
+    sh bin/bench.sh ./kiln 5000 10000 20000
+
+The chain shape is what first exposed the recursive-DFS stack overflow that
+led to the iterative `dag_topo_sort` and `mark_cone`. It is a manual tool, not
+part of `test/run.sh`; the suite's `Scale` section keeps a smaller deep-chain
+case as a fast regression guard.
 
 ## Memory
 
