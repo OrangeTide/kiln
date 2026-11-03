@@ -194,10 +194,16 @@ which rules out `check`, `run`, and `install` as first-class targets.
     `DESTDIR` support, and handle relocation: a path baked in at build time
     with a runtime override, as the Makefile does for its include directory.
 
-16. **Version integration.** Provide a stdlib helper for the git-describe
-    version pattern (authoritative version file, git only refines it), so
-    every project does not re-derive it. The pattern is already documented in
-    the project's git workflow; package it.
+16. **Version integration. (done)** `git_version base` packages the
+    authoritative-file pattern from the project's git workflow: it refines a
+    tracked base version with `git describe --match v<base>`, returning the
+    base for a clean release, the base plus git's suffix past the tag,
+    `base-dev-g<sha>` with no matching tag, and the bare base without git.
+    Matching `v<base>` keeps a vendored copy from describing against a host
+    project's tags. `define_header out macro value` writes any value into a
+    guarded header, so `define_header ... [git_version [exec cat VERSION]]`
+    is the whole pattern. (The simpler `version_header`, from item 13, stays
+    for a quick bare `git describe`, and now shares `define_header`.)
 
 17. **Explain and diagnose.** Add a mode that answers "why is this target
     rebuilding?" by naming the input, command, or implicit dependency that

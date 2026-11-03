@@ -1143,6 +1143,53 @@ check_contains "multi: later triplet still runs" "$OUT" "== ok =="
 check "multi: overall failure exit status" "$rc" "1"
 
 # =========================================================================
+printf "=== Version integration ===\n"
+# =========================================================================
+
+TVI="$TMPDIR/verint"
+mkdir -p "$TVI"
+cd "$TVI"
+cat > Kilnfile <<'EOF'
+define_header build/$Triplet/ver.h PROJECT_VERSION 9.9.9-custom
+default build/$Triplet/ver.h
+EOF
+OUT=$("$KILN" --triplet t 2>&1)
+check_contains "verint: define_header builds" "$OUT" "built 1 target"
+check_contains "verint: guard from macro" "$(cat build/t/ver.h)" "#ifndef PROJECT_VERSION_H"
+check_contains "verint: value defined" "$(cat build/t/ver.h)" "#define PROJECT_VERSION \"9.9.9-custom\""
+
+if command -v git >/dev/null 2>&1; then
+    TGV="$TMPDIR/gitver"
+    mkdir -p "$TGV"
+    cd "$TGV"
+    git init -q
+    git -c user.email=t@example.com -c user.name=test commit -q --allow-empty -m init
+    git tag v1.4.0
+
+    printf 'puts "V=[git_version 1.4.0]"\n' > Kilnfile
+    OUT=$("$KILN" --triplet t 2>&1)
+    check_contains "gitver: clean release is base" "$OUT" "V=1.4.0"
+
+    git -c user.email=t@example.com -c user.name=test commit -q --allow-empty -m next
+    OUT=$("$KILN" --triplet t 2>&1)
+    check_contains "gitver: past tag refines base" "$OUT" "V=1.4.0-1-g"
+
+    printf 'puts "V=[git_version 7.7.7]"\n' > Kilnfile
+    OUT=$("$KILN" --triplet t 2>&1)
+    check_contains "gitver: no matching tag falls back" "$OUT" "V=7.7.7-dev-g"
+else
+    printf "  SKIP: git_version tests (git not found)\n"
+fi
+
+# Outside any git repo, git_version returns the authoritative base.
+TNG="$TMPDIR/nogit"
+mkdir -p "$TNG"
+cd "$TNG"
+printf 'puts "V=[git_version 3.0.1]"\n' > Kilnfile
+OUT=$("$KILN" --triplet t 2>&1)
+check_contains "verint: base without git" "$OUT" "V=3.0.1"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

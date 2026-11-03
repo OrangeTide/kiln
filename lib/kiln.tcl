@@ -143,21 +143,56 @@ proc generate {out inputs command} {
     rule $out "inputs $inputs ; command {$command}"
 }
 
-# version_header out macro
-#   Generate a C header at out that defines macro to the project version
-#   from "git describe", or "unknown" when git is unavailable. The version
-#   is probed once per run with config-time exec and embedded in the
-#   generator command, so command hashing reruns the generator exactly when
-#   the version string changes. When it is unchanged the header is left
-#   untouched, so nothing that includes it recompiles. This is the make
-#   FORCE-plus-cmp dance made automatic: no forced rule, no mtime guard.
-#   Example:
-#       version_header build/$Triplet/version.h APP_VERSION
-proc version_header {out macro} {
-    set v unknown
-    catch {set v [exec git describe --tags --always --dirty]}
+# define_header out macro value
+#   Generate a guarded C header at out that defines macro to value. The
+#   value is embedded in the generator command, so command hashing rewrites
+#   the header only when the value changes and nothing that includes it
+#   recompiles while the value holds. This is the make FORCE-plus-cmp dance
+#   made automatic: no forced rule, no mtime guard. Pair with git_version
+#   to bake a version into a build.
+proc define_header {out macro value} {
     set guard $macro
     append guard _H
     set fmt "#ifndef $guard\\n#define $guard\\n#define $macro \"%s\"\\n#endif\\n"
-    rule $out "command {printf '$fmt' '$v' > \$out}"
+    rule $out "command {printf '$fmt' '$value' > \$out}"
+}
+
+# git_version base
+#   Refine an authoritative base version (such as the contents of a tracked
+#   VERSION file) with git. Returns base unchanged for a clean release
+#   tagged v<base>; base plus git describe's suffix (commits since the tag,
+#   short sha, -dirty) when the tree has moved past the tag; base-dev-g<sha>
+#   when no matching tag exists; and base alone when git is unavailable.
+#   Matching v<base> specifically keeps a vendored copy from describing
+#   itself against a host project's tags, and the tracked base keeps a
+#   tarball or tagless checkout producing a sane version. Example:
+#       define_header build/$Triplet/version.h APP_VERSION \
+#           [git_version [exec cat VERSION]]
+proc git_version {base} {
+    set tag v
+    append tag $base
+    set desc ""
+    catch {set desc [exec git describe --tags --dirty --match $tag 2>/dev/null]}
+    if {[string length $desc]} {
+        return $base[string range $desc [string length $tag] end]
+    }
+    set sha ""
+    catch {set sha [exec git describe --always --dirty 2>/dev/null]}
+    if {[string length $sha]} {
+        return $base-dev-g$sha
+    }
+    return $base
+}
+
+# version_header out macro
+#   Generate a version header the simple way: define macro to the output of
+#   git describe, or "unknown" when git is unavailable. For a version that
+#   also works from a tarball or a vendored copy, prefer an authoritative
+#   base refined by git_version:
+#       define_header build/$Triplet/version.h APP_VERSION \
+#           [git_version [exec cat VERSION]]
+proc version_header {out macro} {
+    set v unknown
+    catch {set v [exec git describe --tags --always --dirty 2>/dev/null]}
+    define_header $out $macro $v
 }

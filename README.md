@@ -186,7 +186,9 @@ The helpers are:
 - `run name program opts` - build `program`, then launch it (see below)
 - `test name program opts` - run a test program; a non-zero exit fails the build
 - `generate out inputs command` - generate a file from a command (see below)
+- `define_header out macro value` - generate a guarded header defining `macro`
 - `version_header out macro` - generate a version header from `git describe`
+- `git_version base` - refine an authoritative base version with git
 
 The compiler is the global `CC`, defaulting to `cc`. Override it from
 the environment (`CC=clang kiln ...`) or by setting it in the Kilnfile
@@ -281,6 +283,25 @@ version_header build/$Triplet/version.h APP_VERSION
 This writes a guarded header defining `APP_VERSION` to the current
 version. Build again with the same version and kiln does nothing; commit
 and tag a new version and only the header and its dependents rebuild.
+
+For a release-quality version that also works from a tarball or a
+vendored copy, keep the version in a tracked `VERSION` file and let git
+only refine it. `git_version base` returns `base` for a clean release
+tagged `v<base>`, `base` plus git's suffix (commits since the tag, short
+sha, `-dirty`) once the tree moves on, `base-dev-g<sha>` when no matching
+tag exists, and `base` alone when git is unavailable. `define_header`
+writes any value into a guarded header:
+
+```tcl
+define_header build/$Triplet/version.h APP_VERSION \
+    [git_version [exec cat VERSION]]
+```
+
+Matching `v<base>` specifically keeps a vendored copy from describing
+itself against the host project's tags, and the tracked base keeps a
+tagless checkout producing a sane version. This is the version pattern
+from kiln's own git workflow, packaged so each project need not re-derive
+it.
 
 ## How It Works
 

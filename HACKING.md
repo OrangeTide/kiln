@@ -228,10 +228,16 @@ no C support and no rule duplication. A variant whose name matches nothing
 declared leaves the flags and the default build directory untouched.
 
 Code generation is also stdlib-only. `generate` is a thin wrapper over
-`rule`. `version_header` leans on two existing mechanisms: config-time
-`exec` runs `git describe` while the Kilnfile is evaluated, and the result
-is baked into the generator command, so command hashing reruns the
-generator exactly when the version changes. No "always run" rule flag is
+`rule`, and `define_header out macro value` writes a guarded header from a
+value. `version_header` and the version pattern lean on two existing
+mechanisms: config-time `exec` runs `git describe` while the Kilnfile is
+evaluated, and the result is baked into the generator command, so command
+hashing reruns the generator exactly when the version changes.
+`git_version base` implements the authoritative-file version pattern from
+the git skill: it describes against `v<base>` (so a vendored copy cannot
+match a host project's tags), strips that prefix to get git's suffix, and
+falls back to `base-dev-g<sha>` or bare `base`. Its `exec` calls redirect
+stderr to `/dev/null` so a missing tag or absent repo stays quiet. No "always run" rule flag is
 needed, which is deliberate: the scheduler cascades to consumers whenever
 a producer runs this build (the `STATE_BUILDING` propagation), so a forced
 generator would recompile its dependents every build. Keeping the

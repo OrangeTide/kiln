@@ -384,6 +384,19 @@ for generated sources such as a parser table.
 The generator reruns only when its inputs or command change, so there is
 no need to force it to run and guard its output's timestamp.
 .TP
+.BI "define_header " "out macro value"
+Generate a guarded C header at
+.I out
+that defines
+.I macro
+to
+.IR value .
+The value is embedded in the generator command, so the header is rewritten
+only when the value changes.
+Pair with
+.B git_version
+to bake a version into a build.
+.TP
 .BI "version_header " "out macro"
 Generate a C header at
 .I out
@@ -402,6 +415,41 @@ This replaces the
 rule and
 .B cmp
 guard a Makefile needs for the same effect.
+.TP
+.BI "git_version " base
+Refine an authoritative
+.I base
+version (such as the contents of a tracked
+.B VERSION
+file) with git.
+Returns
+.I base
+unchanged for a clean release tagged
+.IR v<base> ,
+.I base
+plus the
+.B git describe
+suffix (commits since the tag, short sha,
+.BR \-dirty )
+once the tree moves past the tag,
+.IR base \-dev\-g<sha>
+when no matching tag exists, and
+.I base
+alone when git is unavailable.
+Matching
+.I v<base>
+keeps a vendored copy from describing itself against a host project's
+tags, and the tracked base keeps a tarball or tagless checkout producing a
+sane version.
+Combine with
+.BR define_header :
+.RS
+.PP
+.nf
+define_header build/$Triplet/version.h APP_VERSION \e
+    [git_version [exec cat VERSION]]
+.fi
+.RE
 .TP
 .BI "run " "name program opts"
 Define a phony target
