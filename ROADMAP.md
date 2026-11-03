@@ -168,11 +168,16 @@ which rules out `check`, `run`, and `install` as first-class targets.
     flag globals start empty, so a build depends on the Kilnfile, not the
     environment.
 
-13. **Generated files and codegen.** Bless a pattern for generating a source
-    file from a command (a version header, a parser table). kiln's content
-    hashing already avoids the mtime cascade that forces the Makefile's `cmp`
-    guard, so the stdlib helper mainly needs to make this easy and document
-    the win.
+13. **Generated files and codegen. (done)** Two stdlib helpers. `generate out
+    inputs command` is a thin, intent-naming wrapper over `rule` for a
+    generated source such as a parser table. `version_header out macro`
+    probes `git describe` with config-time `exec` and embeds the result in
+    the generator command, so command hashing reruns it exactly when the
+    version changes and an unchanged version rewrites nothing, with no
+    `FORCE` rule or `cmp` guard. (The win is command and content hashing
+    keeping an unchanged generator from running; kiln still cascades to
+    consumers whenever a producer does run this build, so a forced generator
+    was deliberately avoided.)
 
 14. **Multiple targets in one run.** Allow building several triplets or
     architectures in a single invocation with per-target toolchains, rather

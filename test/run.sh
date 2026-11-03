@@ -1031,6 +1031,75 @@ check_file_exists "variant: release artifact" "$TVAR/build/t/release/app"
 check_file_exists "variant: debug artifact" "$TVAR/build/t/debug/app"
 
 # =========================================================================
+printf "=== Code generation ===\n"
+# =========================================================================
+
+TGEN="$TMPDIR/codegen"
+mkdir -p "$TGEN"
+cd "$TGEN"
+echo A > seed.txt
+cat > Kilnfile <<'EOF'
+generate build/$Triplet/gen.txt {seed.txt} {sh -c "cp $in $out"}
+rule build/$Triplet/app {
+    inputs build/$Triplet/gen.txt
+    command {sh -c "cp $in $out"}
+}
+default build/$Triplet/app
+EOF
+
+OUT=$("$KILN" --triplet t 2>&1)
+check_contains "codegen: generate builds output and consumer" "$OUT" "built 2 targets"
+check_file_exists "codegen: generated file created" "$TGEN/build/t/gen.txt"
+
+# An unchanged rebuild does nothing: the generator is not force-run, so
+# nothing downstream rebuilds. This is the win over a make FORCE rule.
+OUT=$("$KILN" --triplet t 2>&1)
+check_contains "codegen: unchanged rebuild is a no-op" "$OUT" "nothing to do"
+
+# Touching the input without changing its contents is also a no-op:
+# content hashing sees the input is unmodified and skips regeneration.
+sleep 1
+touch seed.txt
+OUT=$("$KILN" --triplet t 2>&1)
+check_contains "codegen: touch without change is a no-op" "$OUT" "nothing to do"
+
+# A real content change regenerates and cascades to the consumer.
+echo B > seed.txt
+OUT=$("$KILN" --triplet t 2>&1)
+check_contains "codegen: content change regenerates and cascades" "$OUT" "built 2 targets"
+
+# version_header needs git; skip gracefully where it is unavailable.
+if command -v git >/dev/null 2>&1; then
+    TVH="$TMPDIR/version"
+    mkdir -p "$TVH"
+    cd "$TVH"
+    git init -q
+    git -c user.email=t@example.com -c user.name=test commit -q --allow-empty -m init
+    git tag v0.1.0
+    cat > Kilnfile <<'EOF'
+version_header build/$Triplet/version.h APP_VERSION
+default build/$Triplet/version.h
+EOF
+    OUT=$("$KILN" --triplet t 2>&1)
+    check_contains "version: header generated" "$OUT" "built 1 target"
+    check_contains "version: guard present" "$(cat build/t/version.h)" "#ifndef APP_VERSION_H"
+    check_contains "version: macro and tag present" "$(cat build/t/version.h)" "v0.1.0"
+
+    OUT=$("$KILN" --triplet t 2>&1)
+    check_contains "version: unchanged is a no-op" "$OUT" "nothing to do"
+
+    # A new tag on a new commit changes the version, so the header
+    # regenerates without any FORCE/cmp machinery.
+    git -c user.email=t@example.com -c user.name=test commit -q --allow-empty -m next
+    git tag v0.2.0
+    OUT=$("$KILN" --triplet t 2>&1)
+    check_contains "version: regenerates on new tag" "$OUT" "built 1 target"
+    check_contains "version: header has new tag" "$(cat build/t/version.h)" "v0.2.0"
+else
+    printf "  SKIP: version_header tests (git not found)\n"
+fi
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

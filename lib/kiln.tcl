@@ -129,3 +129,35 @@ proc run {name program opts} {
 proc test {name program opts} {
     run $name $program $opts
 }
+
+# generate out inputs command
+#   Define a rule that produces out by running command, with inputs as its
+#   dependencies ($in and $out expand as in any rule). A thin wrapper over
+#   rule that names the intent for generated sources such as a parser
+#   table. The generator reruns only when its inputs or command change
+#   (content and command hashing), so an unchanged build does not
+#   regenerate the file and an input touched without a content change is
+#   skipped. There is no need to force-run it and guard its mtime. Example:
+#       generate parser.c {parser.y} {bison -o $out $in}
+proc generate {out inputs command} {
+    rule $out "inputs $inputs ; command {$command}"
+}
+
+# version_header out macro
+#   Generate a C header at out that defines macro to the project version
+#   from "git describe", or "unknown" when git is unavailable. The version
+#   is probed once per run with config-time exec and embedded in the
+#   generator command, so command hashing reruns the generator exactly when
+#   the version string changes. When it is unchanged the header is left
+#   untouched, so nothing that includes it recompiles. This is the make
+#   FORCE-plus-cmp dance made automatic: no forced rule, no mtime guard.
+#   Example:
+#       version_header build/$Triplet/version.h APP_VERSION
+proc version_header {out macro} {
+    set v unknown
+    catch {set v [exec git describe --tags --always --dirty]}
+    set guard $macro
+    append guard _H
+    set fmt "#ifndef $guard\\n#define $guard\\n#define $macro \"%s\"\\n#endif\\n"
+    rule $out "command {printf '$fmt' '$v' > \$out}"
+}

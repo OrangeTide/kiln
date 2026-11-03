@@ -212,6 +212,19 @@ matches `$Variant`, so each variant gets its own output tree and CDB with
 no C support and no rule duplication. A variant whose name matches nothing
 declared leaves the flags and the default build directory untouched.
 
+Code generation is also stdlib-only. `generate` is a thin wrapper over
+`rule`. `version_header` leans on two existing mechanisms: config-time
+`exec` runs `git describe` while the Kilnfile is evaluated, and the result
+is baked into the generator command, so command hashing reruns the
+generator exactly when the version changes. No "always run" rule flag is
+needed, which is deliberate: the scheduler cascades to consumers whenever
+a producer runs this build (the `STATE_BUILDING` propagation), so a forced
+generator would recompile its dependents every build. Keeping the
+generator off unless its command or inputs change is what makes the
+version pattern cascade-free. The header's `printf` template uses a
+single-quoted format with `%s` and a plain `"` (not `\"`), because
+`expand_command` escapes every double quote in a `command {...}` body.
+
 ## Platform Abstraction
 
 Platform-specific code lives in `platform_unix.c` and

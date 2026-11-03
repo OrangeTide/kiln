@@ -177,6 +177,8 @@ The helpers are:
 - `cp_rule dst src` - copy as a build step
 - `run name program opts` - build `program`, then launch it (see below)
 - `test name program opts` - run a test program; a non-zero exit fails the build
+- `generate out inputs command` - generate a file from a command (see below)
+- `version_header out macro` - generate a version header from `git describe`
 
 The compiler is the global `CC`, defaulting to `cc`. Override it from
 the environment (`CC=clang kiln ...`) or by setting it in the Kilnfile
@@ -244,6 +246,33 @@ each variant keeps its own outputs and staleness database. A variant's
 flags reach both compilation and linking, so a sanitizer that must be
 passed to the linker works from a single entry. The globals start empty,
 so a build depends only on the Kilnfile, not the ambient environment.
+
+## Generated Files
+
+Generating a source file from a command is an ordinary rule, so
+`generate` is a thin wrapper that names the intent:
+
+```tcl
+generate build/$Triplet/parser.c {parser.y} {bison -o $out $in}
+```
+
+The generator reruns only when its inputs or command change, so an
+unchanged build regenerates nothing and a consumer rebuilds only when the
+generated file really changes.
+
+A version header is the classic case. In Make it needs a `FORCE` rule
+plus a `cmp` guard so an unchanged version does not update the file's
+mtime and recompile the world. kiln avoids both: `version_header` probes
+`git describe` at config time and embeds the result in the generator
+command, so command hashing reruns it exactly when the version changes.
+
+```tcl
+version_header build/$Triplet/version.h APP_VERSION
+```
+
+This writes a guarded header defining `APP_VERSION` to the current
+version. Build again with the same version and kiln does nothing; commit
+and tag a new version and only the header and its dependents rebuild.
 
 ## How It Works
 

@@ -362,6 +362,39 @@ Define a rule that copies
 to
 .IR dst .
 .TP
+.BI "generate " "out inputs command"
+Define a rule that produces
+.I out
+by running
+.IR command ,
+with
+.I inputs
+as dependencies.
+A thin wrapper over
+.B rule
+for generated sources such as a parser table.
+The generator reruns only when its inputs or command change, so there is
+no need to force it to run and guard its output's timestamp.
+.TP
+.BI "version_header " "out macro"
+Generate a C header at
+.I out
+that defines
+.I macro
+to the project version from
+.BR "git describe" ,
+or
+.B unknown
+when git is unavailable.
+The version is probed at configuration time and embedded in the generator
+command, so the header is rewritten exactly when the version changes and
+nothing that includes it recompiles while the version holds.
+This replaces the
+.B FORCE
+rule and
+.B cmp
+guard a Makefile needs for the same effect.
+.TP
 .BI "run " "name program opts"
 Define a phony target
 .I name
