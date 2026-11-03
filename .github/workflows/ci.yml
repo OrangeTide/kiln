@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'bin/**'
+      - 'test/**'
+      - 'examples/**'
+      - 'bootstrap.c'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'bin/**'
+      - 'test/**'
+      - 'examples/**'
+      - 'bootstrap.c'
+      - '.github/workflows/ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-gcc
+            os: ubuntu-latest
+            cc: gcc
+          - name: linux-clang
+            os: ubuntu-latest
+            cc: clang
+          - name: macos-clang
+            os: macos-latest
+            cc: clang
+          - name: windows-msvc
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build and test (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          "${{ matrix.cc }}" -O2 -o kiln bootstrap.c
+          sh test/run.sh ./kiln
+
+      # Puts cl.exe on PATH. Consider pinning to a commit SHA.
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build and smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          call bin\bootstrap.bat
+          if %errorlevel% neq 0 exit /b 1
+          kiln.exe --help
