@@ -347,6 +347,7 @@ sh doc/gen-screenshot.sh
 | `-f F`, `--file F` | Read build description F (default `Kilnfile`; repeatable) |
 | `-a clean` | Delete declared outputs and generated depfiles, then empty dirs |
 | `-a status` | Report out-of-date targets and stale database entries |
+| `-a explain` | Report why each out-of-date target would rebuild |
 | `--triplet T` | Set target triplet (repeatable; skip `cc -dumpmachine`) |
 | `--variant V` | Set build variant (default `release`) |
 | `--builddir P` | Set build directory prefix for rule outputs |

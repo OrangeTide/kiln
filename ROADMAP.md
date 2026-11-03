@@ -205,10 +205,15 @@ which rules out `check`, `run`, and `install` as first-class targets.
     is the whole pattern. (The simpler `version_header`, from item 13, stays
     for a quick bare `git describe`, and now shares `define_header`.)
 
-17. **Explain and diagnose.** Add a mode that answers "why is this target
-    rebuilding?" by naming the input, command, or implicit dependency that
-    changed. This directly addresses the ordering fragility the Makefile
-    comments admit to.
+17. **Explain and diagnose. (done)** `kiln -a explain` reports, without
+    building, why each out-of-date target would rebuild, naming the cause: a
+    changed or first-seen command, a changed or missing input, an input
+    rebuilt by an out-of-date rule (a cascade), a changed implicit header, or
+    a missing output. It computes direct dirtiness like `status`, then
+    propagates cascades in topological order so the reported set matches what
+    a build would run (a program is listed because its object will be
+    rebuilt, not only the object). This answers the ordering questions the
+    Makefile comments admit to.
 
 ## Phase 5: robustness and portability
 

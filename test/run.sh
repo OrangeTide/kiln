@@ -1190,6 +1190,63 @@ OUT=$("$KILN" --triplet t 2>&1)
 check_contains "verint: base without git" "$OUT" "V=3.0.1"
 
 # =========================================================================
+printf "=== Explain ===\n"
+# =========================================================================
+
+TEX="$TMPDIR/explain"
+mkdir -p "$TEX"
+cd "$TEX"
+printf 'int add(int,int);\n' > util.h
+printf '#include "util.h"\nint add(int a,int b){return a+b;}\n' > util.c
+printf '#include "util.h"\nint main(void){return add(1,2);}\n' > main.c
+cat > Kilnfile <<'EOF'
+builddir build/$Triplet
+cc_program app [list main.c util.c] "-Wall"
+default app
+EOF
+
+# Before any build there is no state.
+OUT=$("$KILN" --triplet t -a explain 2>&1)
+check_contains "explain: no build state" "$OUT" "no build state"
+
+# After a build everything is up to date.
+"$KILN" --triplet t >/dev/null 2>&1
+OUT=$("$KILN" --triplet t -a explain 2>&1)
+check_contains "explain: up to date" "$OUT" "up to date"
+
+# A header change explains the objects and the cascade to the program.
+sleep 1
+echo "/* touch */" >> util.h
+OUT=$("$KILN" --triplet t -a explain 2>&1)
+check_contains "explain: header reason" "$OUT" "header util.h changed"
+check_contains "explain: cascade reason" "$OUT" "rebuilt by an out-of-date rule"
+check_contains "explain: program listed via cascade" "$OUT" "build/t/app"
+
+# A source change is reported as a changed input (not a duplicate header).
+"$KILN" --triplet t >/dev/null 2>&1
+sleep 1
+printf '#include "util.h"\nint add(int a,int b){return a+b+1;}\n' > util.c
+OUT=$("$KILN" --triplet t -a explain 2>&1)
+check_contains "explain: input change" "$OUT" "input util.c changed"
+check_not_contains "explain: source not doubled as header" "$OUT" "header util.c changed"
+
+# A missing output is reported.
+"$KILN" --triplet t >/dev/null 2>&1
+rm -f build/t/app
+OUT=$("$KILN" --triplet t -a explain 2>&1)
+check_contains "explain: missing output" "$OUT" "output build/t/app is missing"
+
+# Changing a compile flag is reported as a command change.
+"$KILN" --triplet t >/dev/null 2>&1
+cat > Kilnfile <<'EOF'
+builddir build/$Triplet
+cc_program app [list main.c util.c] "-Wall -O2"
+default app
+EOF
+OUT=$("$KILN" --triplet t -a explain 2>&1)
+check_contains "explain: command change" "$OUT" "command changed"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

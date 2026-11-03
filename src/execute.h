@@ -29,4 +29,9 @@ int build_clean(struct dag *g, struct build_config *cfg);
  * and which CDB entries refer to rules that no longer exist. */
 int build_status(struct dag *g, struct build_config *cfg);
 
+/* build_explain reports, without building, why each out-of-date target is
+ * out of date: the command, inputs, implicit headers, or missing outputs
+ * that changed. */
+int build_explain(struct dag *g, struct build_config *cfg);
+
 #endif

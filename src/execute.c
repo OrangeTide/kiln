@@ -949,3 +949,206 @@ build_status(struct dag *g, struct build_config *cfg)
 	cdb_close(&old_db);
 	return 0;
 }
+
+/*
+ * explain_reasons prints the specific reasons a command node is out of
+ * date: a changed or first-seen command, changed or missing inputs, an
+ * input rebuilt by an out-of-date rule (a cascade), changed implicit
+ * headers, and missing outputs. dirty[] marks which command nodes are out
+ * of date, for attributing cascades. Reads are against old_db; writes land
+ * in the scratch writer and are discarded.
+ */
+static void
+explain_reasons(struct dag *g, struct dag_node *n, struct cdb *old_db,
+                struct cdb_writer *scratch, const int *dirty)
+{
+	const char *first_output = first_file_output(g, n);
+
+	/* A task target with no file output always runs. */
+	if (!first_output) {
+		printf("  always runs (no file output)\n");
+		return;
+	}
+
+	/* Command string. */
+	char key[4096];
+	snprintf(key, sizeof(key), "cmd:%s", first_output);
+	size_t vlen;
+	const void *val = cdb_find(old_db, key, strlen(key), &vlen);
+
+	if (!val || vlen != sizeof(uint32_t)) {
+		printf("  no prior build record\n");
+	} else {
+		uint32_t old_hash;
+		memcpy(&old_hash, val, sizeof(old_hash));
+
+		if (old_hash != hash_string(n->command))
+			printf("  command changed\n");
+	}
+
+	/* Explicit inputs: missing, changed, or rebuilt upstream. */
+	for (struct dag_edge *e = n->inputs; e; e = e->next) {
+		struct dag_node *in = g->nodes[e->node_id];
+
+		if (in->type != NODE_FILE) continue;
+
+		struct kiln_stat st;
+
+		if (kiln_stat_file(in->name, &st) != OK) {
+			printf("  input %s is missing\n", in->name);
+		} else if (file_is_dirty(in->name, old_db, scratch)) {
+			printf("  input %s changed\n", in->name);
+		} else {
+			for (struct dag_edge *pe = in->inputs; pe; pe = pe->next) {
+				struct dag_node *p = g->nodes[pe->node_id];
+
+				if (p->type == NODE_CMD && dirty[p->id]) {
+					printf("  input %s is rebuilt by an "
+					       "out-of-date rule\n", in->name);
+					break;
+				}
+			}
+		}
+	}
+
+	/* Implicit headers from the recorded depfile. A depfile also lists the
+	 * source itself, which is already an explicit input, so skip any dep
+	 * that matches one to avoid reporting it twice. */
+	snprintf(key, sizeof(key), "deps:%s", first_output);
+	val = cdb_find(old_db, key, strlen(key), &vlen);
+
+	if (val && vlen > 0) {
+		const char *p = val;
+		const char *end = p + vlen;
+
+		while (p < end) {
+			size_t l = strlen(p);
+
+			if (l == 0) {
+				p += l + 1;
+				continue;
+			}
+
+			int is_input = 0;
+
+			for (struct dag_edge *e = n->inputs; e; e = e->next) {
+				struct dag_node *in = g->nodes[e->node_id];
+
+				if (in->type == NODE_FILE &&
+				    strcmp(in->name, p) == 0) {
+					is_input = 1;
+					break;
+				}
+			}
+
+			if (!is_input && file_is_dirty(p, old_db, scratch))
+				printf("  header %s changed\n", p);
+
+			p += l + 1;
+		}
+	}
+
+	/* Missing outputs. */
+	for (struct dag_edge *e = n->outputs; e; e = e->next) {
+		struct dag_node *out = g->nodes[e->node_id];
+		struct kiln_stat st;
+
+		if (out->type == NODE_FILE && kiln_stat_file(out->name, &st) != OK)
+			printf("  output %s is missing\n", out->name);
+	}
+}
+
+int
+build_explain(struct dag *g, struct build_config *cfg)
+{
+	struct cdb old_db;
+	int have_old_db = (cdb_open(&old_db, cfg->cdb_path) == OK);
+
+	int total = 0;
+
+	for (int i = 0; i < g->count; i++)
+		if (g->nodes[i]->type == NODE_CMD) total++;
+
+	printf("kiln explain (%s)\n", cfg->cdb_path);
+
+	if (!have_old_db) {
+		printf("  no build state; all %d target%s would be built\n",
+		       total, total == 1 ? "" : "s");
+		return 0;
+	}
+
+	/* node_is_dirty carries state into a writer; a scratch one keeps this
+	 * read-only. With nothing building, dirtiness reflects only real
+	 * staleness, which is also what makes dirty[] safe for cascades. */
+	struct cdb_writer scratch;
+	cdb_writer_init(&scratch);
+
+	int *dirty = xmalloc(sizeof(int) * g->count);
+	memset(dirty, 0, sizeof(int) * g->count);
+
+	/* Direct dirtiness: command, inputs on disk, implicit deps, outputs. */
+	for (int i = 0; i < g->count; i++) {
+		struct dag_node *n = g->nodes[i];
+
+		if (n->type != NODE_CMD) continue;
+
+		const char *first_output;
+		uint32_t cmd_hash;
+
+		dirty[n->id] = node_is_dirty(g, n, &old_db, have_old_db, &scratch,
+		                             &first_output, &cmd_hash);
+	}
+
+	/* Propagate cascades: a command whose input is produced by an
+	 * out-of-date command is itself out of date. Topological order visits
+	 * producers before consumers, so one pass suffices. This matches the
+	 * set a real build rebuilds, which node_is_dirty alone understates
+	 * because nothing has run yet. */
+	for (int k = 0; k < g->order_count; k++) {
+		struct dag_node *n = g->nodes[g->order[k]];
+
+		if (n->type != NODE_CMD || dirty[n->id]) continue;
+
+		for (struct dag_edge *e = n->inputs; e && !dirty[n->id]; e = e->next) {
+			struct dag_node *in = g->nodes[e->node_id];
+
+			if (in->type != NODE_FILE) continue;
+
+			for (struct dag_edge *pe = in->inputs; pe; pe = pe->next) {
+				struct dag_node *p = g->nodes[pe->node_id];
+
+				if (p->type == NODE_CMD && dirty[p->id]) {
+					dirty[n->id] = 1;
+					break;
+				}
+			}
+		}
+	}
+
+	int outdated = 0;
+
+	for (int i = 0; i < g->count; i++) {
+		struct dag_node *n = g->nodes[i];
+
+		if (n->type != NODE_CMD || !dirty[n->id]) continue;
+
+		outdated++;
+
+		if (outdated == 1) printf("\nout of date:\n");
+
+		printf("%s%s%s\n", term_red(), node_label(g, n), term_reset());
+		explain_reasons(g, n, &old_db, &scratch, dirty);
+	}
+
+	if (outdated == 0)
+		printf("\n  all %d target%s up to date\n",
+		       total, total == 1 ? "" : "s");
+	else
+		printf("\n  %d of %d target%s out of date\n",
+		       outdated, total, total == 1 ? "" : "s");
+
+	free(dirty);
+	cdb_writer_free(&scratch);
+	cdb_close(&old_db);
+	return 0;
+}

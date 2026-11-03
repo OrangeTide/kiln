@@ -157,7 +157,8 @@ usage(void)
 	        "                       cc -dumpmachine)\n"
 	        "  --variant <name>     Set build variant (default: release)\n"
 	        "  --builddir <path>    Set build directory prefix for rule outputs\n"
-	        "  -a, --action <name>  Run a built-in action (clean, status)\n"
+	        "  -a, --action <name>  Run a built-in action (clean, status,\n"
+	        "                       explain)\n"
 	        "  --lib <file.tcl>     Load a Tcl library before Kilnfiles\n"
 	        "  --no-stdlib          Skip loading the built-in standard library\n"
 	        "  -n, --dry-run        Print commands without executing\n"
@@ -322,6 +323,8 @@ build_one(const char *triplet, const struct kiln_options *o)
 			result = build_clean(&graph, &cfg);
 		} else if (strcmp(o->action, "status") == 0) {
 			result = build_status(&graph, &cfg);
+		} else if (strcmp(o->action, "explain") == 0) {
+			result = build_explain(&graph, &cfg);
 		} else {
 			fprintf(stderr, "kiln: unknown action '%s'\n", o->action);
 			result = 1;

@@ -129,6 +129,18 @@ flag missing outputs, then walks the CDB with `cdb_iter_*` and reports
 any `cmd:<output>` key whose output is no longer a file node (its rule
 was removed).
 
+`build_explain()` reports *why* each target is out of date. It first
+computes direct dirtiness per command with `node_is_dirty` (same scratch
+writer), then propagates cascades in topological order: a command whose
+input is produced by an out-of-date command is itself out of date. This
+closure matters because `node_is_dirty` alone understates the set, since
+nothing has run yet so no node is `STATE_BUILDING`. `explain_reasons()`
+then re-derives the human-readable reasons independently (command, inputs,
+depfile headers, outputs), using the `dirty[]` array to attribute
+cascades. A depfile lists the source among its dependencies, so a dep that
+matches an explicit input is skipped to avoid reporting it as both an
+input and a header.
+
 ## Output Directories
 
 Before spawning a command, `build_execute` calls `ensure_output_dirs()`,
