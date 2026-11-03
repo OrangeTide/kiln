@@ -31,3 +31,11 @@ rule goodbye {
     inputs goodbye.o greet.o
     command {cc -o $out $in}
 }
+
+# Build both programs by default; the run targets below stay on demand.
+default hello goodbye
+
+# Run the built programs on demand:  kiln run-hello  /  kiln run-goodbye
+# The program is built first, then launched (through $RUN if set).
+run run-hello hello {}
+run run-goodbye goodbye {}

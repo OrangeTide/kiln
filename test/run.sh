@@ -406,7 +406,8 @@ EOF
 
 cd "$T2"
 OUT=$("$KILN" --triplet test -f Kilnfile 2>&1 || true)
-check_contains "failure message" "$OUT" "command failed"
+check_contains "failure names target" "$OUT" "bad.o failed with exit code"
+check_contains "failure reports command" "$OUT" "command:"
 check_file_missing "output deleted on fail" "$T2/bad.o"
 
 # =========================================================================
@@ -843,6 +844,58 @@ check_file_exists "select: alias built other" "$TSEL/other.txt"
 # An unknown target is a hard error.
 OUT=$("$KILN" --triplet t nosuch 2>&1 || true)
 check_contains "select: unknown target errors" "$OUT" "unknown target 'nosuch'"
+
+# With builddir active, a bare target name resolves to the prefixed output.
+TSELB="$TMPDIR/selectbd"
+mkdir -p "$TSELB"
+cd "$TSELB"
+cat > Kilnfile <<'EOF'
+builddir out
+rule prog {
+    command {sh -c "echo P > $out"}
+}
+EOF
+OUT=$("$KILN" --triplet t prog 2>&1)
+check_contains "select: bare name resolves under builddir" "$OUT" "built 1 target"
+check_file_exists "select: builddir output created" "$TSELB/out/prog"
+
+# =========================================================================
+printf "=== Run and test targets ===\n"
+# =========================================================================
+
+TRUN="$TMPDIR/run"
+mkdir -p "$TRUN"
+cd "$TRUN"
+
+cat > Kilnfile <<'EOF'
+rule prog {
+    command {sh -c "printf '#!/bin/sh\necho RAN\n' > prog; chmod +x prog"}
+}
+rule badprog {
+    command {sh -c "printf '#!/bin/sh\nexit 2\n' > badprog; chmod +x badprog"}
+}
+run go prog {}
+run withargs prog {--flag value}
+test bad badprog {}
+EOF
+
+# run builds the program, then launches it.
+OUT=$("$KILN" --triplet t go 2>&1)
+check_contains "run: builds and launches" "$OUT" "built 2 targets"
+check_contains "run: program output shown" "$OUT" "RAN"
+
+# opts are appended to the launch command.
+OUT=$("$KILN" --triplet t -n withargs 2>&1)
+check_contains "run: opts appended" "$OUT" "./prog --flag value"
+
+# RUN wraps the launch (here echo, so the program itself never runs).
+OUT=$(RUN=echo "$KILN" --triplet t go 2>&1)
+check_contains "run: RUN wrapper prepended" "$OUT" "echo ./prog"
+
+# A non-zero exit fails the build and names the target and command.
+OUT=$("$KILN" --triplet t bad 2>&1 || true)
+check_contains "test: failing exit fails build" "$OUT" "bad failed with exit code 2"
+check_contains "test: failure reports command" "$OUT" "./badprog"
 
 # =========================================================================
 printf "\n=== Results ===\n"

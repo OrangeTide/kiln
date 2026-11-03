@@ -170,6 +170,8 @@ The helpers are:
 - `cc_objects sources flags` - compile each source, returning the object list
 - `cc_object obj src dep flags` - compile one source with depfile tracking
 - `cp_rule dst src` - copy as a build step
+- `run name program opts` - build `program`, then launch it (see below)
+- `test name program opts` - run a test program; a non-zero exit fails the build
 
 The compiler is the global `CC`, defaulting to `cc`. Override it from
 the environment (`CC=clang kiln ...`) or by setting it in the Kilnfile
@@ -180,6 +182,33 @@ fallback, for other toolchain settings.
 The library is edited as `lib/kiln.tcl` and embedded with
 `sh bin/embed.sh`, which regenerates `src/kiln_stdlib.h`. The helper set
 will grow as kiln's Tcl surface does.
+
+## Running and Testing
+
+`run` and `test` turn a built program into a target you can invoke. They
+declare a phony target that depends on the program, so it is built first,
+then launch it:
+
+```tcl
+cc_program app [glob *.c] "-O2"
+run app-run app {}             # kiln app-run  ->  builds app, runs ./app
+test parser app {--self-test}  # kiln parser   ->  runs ./app --self-test
+```
+
+The third argument is extra command-line options (`{}` for none). A
+non-zero exit fails the build, and kiln prints the target, the command,
+and its output, just as it does for a failing compile.
+
+To run a cross-compiled binary through an emulator, set the global `RUN`
+(empty by default, so programs run natively):
+
+```tcl
+set RUN [getenv RUN qemu-arm]
+```
+
+With this, `run` and `test` launch `qemu-arm ./app` instead of `./app`.
+Because the program is tracked as an input, changing the compiler or a
+source rebuilds it before the next run.
 
 ## How It Works
 
@@ -240,6 +269,11 @@ sh doc/gen-screenshot.sh
 | `NO_COLOR` | Disable colored output ([no-color.org](https://no-color.org/)) |
 | `CLICOLOR_FORCE` | Force color even when not a TTY |
 | `TERM` | Color disabled when `dumb`, empty, or unset |
+| `CC` | C compiler for the standard-library helpers (default `cc`) |
+| `RUN` | Launch wrapper for `run`/`test`, e.g. an emulator (default none) |
+
+`CC` and `RUN` are read by the standard library through `getenv`, so a
+Kilnfile can override either before declaring rules.
 
 ## Amalgamation Build
 

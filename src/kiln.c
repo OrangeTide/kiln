@@ -127,6 +127,14 @@ select_target(struct dag *g, const char *name, int *needed)
 
 	if (id < 0) id = dag_find_file(g, name);
 
+	/* A bare name may refer to a rule output that builddir prefixed, so
+	 * fall back to the prefixed path the same way input resolution does. */
+	if (id < 0 && kiln_get_builddir() && kiln_get_builddir()[0]) {
+		char *prefixed = builddir_prefix(name);
+		id = dag_find_file(g, prefixed);
+		free(prefixed);
+	}
+
 	if (id < 0) {
 		fprintf(stderr, "kiln: unknown target '%s'\n", name);
 		return 1;

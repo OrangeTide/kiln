@@ -50,3 +50,45 @@ proc cc_program {out sources flags} {
     set objs [cc_objects $sources $flags]
     rule $out "inputs $objs ; command {$CC -o \$out \$in}"
 }
+
+# RUN wraps a program launch, for running a cross-compiled binary under an
+# emulator such as qemu. Empty runs the program natively. Override it from
+# the environment (RUN=qemu-arm) or per target in a Kilnfile.
+set RUN [getenv RUN ""]
+
+# run name program opts
+#   Define a phony target that launches program, a build output, through
+#   $RUN with opts appended. The program is an input, so it is built first;
+#   a non-zero exit fails the build and prints the command and its output.
+#   A relative program with no directory part is run as ./program so the
+#   shell does not search $PATH. Pass {} for opts when there are none.
+proc run {name program opts} {
+    # Resolve the program to a runnable path. A name with a directory part
+    # is used as is. A bare name is taken from the build directory when one
+    # is set (builddir prefixes rule outputs the same way), and otherwise
+    # run as ./name so the shell does not search $PATH.
+    set bd ""
+    catch {set bd $BuildDir}
+    if {[string match */* $program]} {
+        set exe $program
+    } elseif {[string length $bd]} {
+        set exe $bd/$program
+    } else {
+        set exe ./$program
+    }
+    if {[string length $RUN]} {
+        set exe "$RUN $exe"
+    }
+    if {[string length $opts]} {
+        set exe "$exe $opts"
+    }
+    phony $name "inputs $program ; command {$exe}"
+}
+
+# test name program opts
+#   Run a test program the same way as run. A test is a program whose exit
+#   status is the verdict: a non-zero exit fails the build. Reads as intent
+#   at the call site (test parser-check ./test_parser {}).
+proc test {name program opts} {
+    run $name $program $opts
+}

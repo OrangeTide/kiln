@@ -184,6 +184,15 @@ builds a rule body, escape `$out`, `$in`, and `$depfile` as `\$out` so
 they reach the rule unexpanded; a helper's own arguments (`$src` and so
 on) are substituted when the helper runs.
 
+`run` and `test` build on `phony`: they declare a phony target with the
+program as an input (so it is built first) whose command launches the
+program, wrapped by the global `RUN`. Because Picol's `proc` has no
+variadic `args`, the extra options are a single parameter; pass `{}` for
+none. A relative program with no `/` is launched as `./program`. Run and
+test failures are reported by the same path as build failures:
+`build_execute` prints `node_label()` (first file output, else phony
+name) and the command on any non-zero exit.
+
 ## Platform Abstraction
 
 Platform-specific code lives in `platform_unix.c` and

@@ -299,6 +299,13 @@ which defaults to
 .B cc
 and may be overridden from the environment or by setting it in a
 Kilnfile; set it per target to cross-compile.
+The global
+.B RUN
+is the launch wrapper used by
+.B run
+and
+.BR test ;
+it is empty by default and is read from the environment the same way.
 .TP
 .BI "cc_program " "out sources flags"
 Compile each C source in the
@@ -326,6 +333,36 @@ Define a rule that copies
 .I src
 to
 .IR dst .
+.TP
+.BI "run " "name program opts"
+Define a phony target
+.I name
+that depends on
+.IR program ,
+a build output, and launches it with
+.I opts
+appended once it is built.
+A relative program with no directory part is launched as
+.IR ./program .
+The launch is wrapped by the global
+.B RUN
+(empty by default, so the program runs natively; set it to an emulator
+such as
+.B qemu\-arm
+to run a cross-compiled binary).
+A non-zero exit fails the build and prints the target, the command, and
+its output.
+Pass
+.B {}
+for
+.I opts
+when there are none.
+.TP
+.BI "test " "name program opts"
+Run a test program the same way as
+.BR run .
+A test is a program whose exit status is the verdict, so a non-zero exit
+fails the build.
 .SH STALENESS DETECTION
 kiln uses a two-level check for each input file:
 .IP 1. 4

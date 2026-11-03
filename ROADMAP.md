@@ -132,11 +132,18 @@ which rules out `check`, `run`, and `install` as first-class targets.
    DAG, a phony runs on every build; per-target selection (item 11) is what
    makes `run`/`test` tasks run on demand rather than every time.
 
-10. **Run and test integration.** Give a first-class way to express "build
-    X, then run it, optionally under a wrapper such as an emulator, and check
-    the exit status or output." This is what the 197 `qemu` lines and the
-    `addr2line` symbolization do by hand. A failing run should report the
-    command and its output the way a failing build command does.
+10. **Run and test integration. (done)** Two stdlib helpers on top of
+    `phony`: `run name program opts` builds `program` and launches it, and
+    `test name program opts` does the same for a test whose exit status is
+    the verdict. The launch is wrapped by the global `RUN` (empty by default,
+    `getenv RUN`), so a cross-compiled binary runs under an emulator by
+    setting `RUN=qemu-arm`; this is what the 197 `qemu` lines do by hand. The
+    program is a tracked input, so it is rebuilt before each run. A non-zero
+    exit fails the build, and `build_execute` now reports the failing target
+    (via `node_label`) and its command alongside the captured output, the
+    same for a failing run as for a failing compile. Output comparison beyond
+    exit status is left to the command itself (the template is arbitrary
+    shell); a golden-output helper can follow if a real need appears.
 
 11. **Default targets, aliases, and groups. (done)** Positional arguments are
     now targets, not Kilnfiles; `-f`/`--file` (repeatable, default `Kilnfile`)

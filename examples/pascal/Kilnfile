@@ -1,7 +1,7 @@
 # Pascal example using Free Pascal Compiler (fpc).
 #
 # Usage:
-#   kiln Kilnfile
+#   kiln
 #
 # Requires: fpc (Free Pascal Compiler)
 #   Debian/Ubuntu: apt install fpc

@@ -340,6 +340,24 @@ first_file_output(struct dag *g, struct dag_node *n)
 	return NULL;
 }
 
+/*
+ * node_label returns a human-readable name for a command node: its first
+ * file output, or a phony target's name, or "(command)" as a fallback.
+ */
+static const char *
+node_label(struct dag *g, struct dag_node *n)
+{
+	const char *label = first_file_output(g, n);
+
+	if (label) return label;
+
+	for (struct dag_edge *e = n->outputs; e; e = e->next)
+		if (g->nodes[e->node_id]->type == NODE_PHONY)
+			return g->nodes[e->node_id]->name;
+
+	return "(command)";
+}
+
 // Check whether a command node needs to be rebuilt.
 // Sets *out_first_output and *out_cmd_hash for use by the caller.
 // When not dirty, carries forward the old CDB state into new_db.
@@ -708,8 +726,11 @@ build_execute(struct dag *g, struct build_config *cfg, const int *needed)
 
 		if (exitcode != 0) {
 			term_clear_progress();
-			fprintf(stderr, "%skiln: command failed with exit code %d%s\n",
-			        term_red(), exitcode, term_reset());
+			fprintf(stderr,
+			        "%skiln: %s failed with exit code %d%s\n"
+			        "  command: %s\n",
+			        term_red(), node_label(g, j.n), exitcode,
+			        term_reset(), j.n->command);
 			delete_outputs(g, j.n);
 			j.n->state = STATE_FAILED;
 			failed = 1;
@@ -811,17 +832,7 @@ build_status(struct dag *g, struct build_config *cfg)
 			}
 		}
 
-		const char *label = first_output;
-
-		if (!label) {
-			for (struct dag_edge *e = n->outputs; e; e = e->next)
-				if (g->nodes[e->node_id]->type == NODE_PHONY) {
-					label = g->nodes[e->node_id]->name;
-					break;
-				}
-		}
-
-		if (!label) label = "(command)";
+		const char *label = node_label(g, n);
 
 		if (!header) {
 			printf("\nout of date:\n");
