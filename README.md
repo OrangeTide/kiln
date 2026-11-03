@@ -156,7 +156,7 @@ sh doc/gen-screenshot.sh
 | Flag | Description |
 |------|-------------|
 | `-a clean` | Delete all declared outputs and empty parent dirs |
-| `-a status` | Show CDB/DAG inconsistencies *(not yet implemented)* |
+| `-a status` | Report out-of-date targets and stale database entries |
 | `--triplet T` | Set target triplet (skip `cc -dumpmachine`) |
 | `--builddir P` | Set build directory prefix for rule outputs |
 | `--lib F` | Load a Tcl library before Kilnfiles (repeatable) |

@@ -553,6 +553,63 @@ check_file_exists "stdlib cc_object output" "$TS/o.o"
 check_file_exists "stdlib cc_object depfile" "$TS/o.d"
 
 # =========================================================================
+printf "=== Status action ===\n"
+# =========================================================================
+
+TST="$TMPDIR/status"
+mkdir -p "$TST"
+cd "$TST"
+
+echo a > a.c
+echo b > b.c
+
+cat > Kilnfile <<'EOF'
+rule a.o {
+    inputs a.c
+    command {cp $in $out}
+}
+rule b.o {
+    inputs b.c
+    command {cp $in $out}
+}
+EOF
+
+OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+check_contains "status: no build state" "$OUT" "no build state"
+
+"$KILN" --triplet t Kilnfile >/dev/null 2>&1
+
+OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+check_contains "status: all up to date" "$OUT" "2 up to date"
+
+# A changed input is reported, and status must not build it.
+sleep 1
+echo changed > a.c
+OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+check_contains "status: out of date count" "$OUT" "1 out of date"
+check_contains "status: names target" "$OUT" "a.o"
+check "status: did not build" "$(cat a.o)" "a"
+
+# A missing output is flagged.
+echo a > a.c
+"$KILN" --triplet t Kilnfile >/dev/null 2>&1
+rm -f b.o
+OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+check_contains "status: missing output" "$OUT" "missing output"
+
+# A removed rule leaves a stale CDB entry.
+"$KILN" --triplet t Kilnfile >/dev/null 2>&1
+cat > Kilnfile <<'EOF'
+rule a.o {
+    inputs a.c
+    command {cp $in $out}
+}
+EOF
+OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+check_contains "status: stale entry header" "$OUT" "stale entries"
+check_contains "status: stale entry name" "$OUT" "b.o"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

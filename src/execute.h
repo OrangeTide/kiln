@@ -21,4 +21,8 @@ int build_execute(struct dag *g, struct build_config *cfg);
  * empty parent directories. Also removes the CDB file. */
 int build_clean(struct dag *g, struct build_config *cfg);
 
+/* build_status reports, without building, which targets are out of date
+ * and which CDB entries refer to rules that no longer exist. */
+int build_status(struct dag *g, struct build_config *cfg);
+
 #endif

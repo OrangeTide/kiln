@@ -100,6 +100,54 @@ cdb_find(struct cdb *c, const void *key, size_t klen,
 	return NULL;
 }
 
+void
+cdb_iter_init(struct cdb *c, struct cdb_iter *it)
+{
+	it->p = NULL;
+	it->end = NULL;
+
+	if (!c->mf.data || c->mf.len < 2048) return;
+
+	/* Records span [2048, first hash table). The first table begins at
+	 * the smallest non-zero table position; if every table is empty the
+	 * file holds no records. */
+	uint32_t tables_start = 0;
+
+	for (int t = 0; t < 256; t++) {
+		uint32_t pos = le32(c->mf.data + t * 8);
+		uint32_t len = le32(c->mf.data + t * 8 + 4);
+
+		if (len == 0) continue;
+
+		if (tables_start == 0 || pos < tables_start)
+			tables_start = pos;
+	}
+
+	if (tables_start < 2048 || tables_start > c->mf.len) return;
+
+	it->p = c->mf.data + 2048;
+	it->end = c->mf.data + tables_start;
+}
+
+int
+cdb_iter_next(struct cdb_iter *it, const void **key, size_t *klen,
+              const void **val, size_t *vlen)
+{
+	if (!it->p || it->p + 8 > it->end) return 0;
+
+	uint32_t k = le32(it->p);
+	uint32_t v = le32(it->p + 4);
+
+	if (it->p + 8 + k + v > it->end) return 0;
+
+	*key = it->p + 8;
+	*klen = k;
+	*val = it->p + 8 + k;
+	*vlen = v;
+	it->p += 8 + k + v;
+	return 1;
+}
+
 /***************************************************************************
  * Writer
  **************************************************************************/

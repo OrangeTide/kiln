@@ -91,7 +91,7 @@ kiln uses `--action` (`-a`) for built-in operations that are not
 targets, avoiding ambiguity when a target happens to share a name:
 
     kiln -a clean Kilnfile    # delete all DAG-declared outputs
-    kiln -a status Kilnfile   # show CDB/DAG inconsistencies (not yet implemented)
+    kiln -a status Kilnfile   # report out-of-date targets and stale CDB entries
 
 `clean` walks all NODE_FILE nodes in the DAG, identifies outputs (files
 with a NODE_CMD producer edge), deletes them, then removes empty parent
@@ -101,6 +101,13 @@ directory if empty.
 The existing `delete_outputs()` in execute.c handles per-command cleanup
 on failure. `build_clean()` uses the same output identification pattern
 but across the entire graph.
+
+`build_status()` reports without building. It reuses `node_is_dirty()`
+against a throwaway `cdb_writer` (so it stays read-only, and with nothing
+building no node reaches STATE_BUILDING) to list out-of-date targets and
+flag missing outputs, then walks the CDB with `cdb_iter_*` and reports
+any `cmd:<output>` key whose output is no longer a file node (its rule
+was removed).
 
 ## Terminal Output
 

@@ -89,9 +89,9 @@ Also removes the staleness database
 and the build directory if empty.
 .TP
 .B status
-Report inconsistencies between the staleness database and the
-current DAG.
-.I (Not yet implemented.)
+Report, without building, which targets are out of date and why
+(a changed input or command, or a missing output), and list entries in
+the staleness database whose rule has been removed from the Kilnfile.
 .SH KILNFILE SYNTAX
 Build descriptions are Tcl scripts.
 kiln extends the Tcl interpreter with the following commands:

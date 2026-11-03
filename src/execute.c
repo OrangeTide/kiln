@@ -747,3 +747,109 @@ build_execute(struct dag *g, struct build_config *cfg)
 
 	return failed ? 1 : 0;
 }
+
+int
+build_status(struct dag *g, struct build_config *cfg)
+{
+	struct cdb old_db;
+	int have_old_db = (cdb_open(&old_db, cfg->cdb_path) == OK);
+
+	int total = 0;
+
+	for (int i = 0; i < g->count; i++)
+		if (g->nodes[i]->type == NODE_CMD) total++;
+
+	printf("kiln status (%s)\n", cfg->cdb_path);
+
+	if (!have_old_db) {
+		printf("  no build state; all %d target%s would be built\n",
+		       total, total == 1 ? "" : "s");
+		return 0;
+	}
+
+	/* node_is_dirty records carry-forward state into a writer; use a
+	 * scratch one that is never written, so this stays read-only. With
+	 * nothing building, no node reaches STATE_BUILDING, so a target is
+	 * reported dirty only for a real staleness reason. */
+	struct cdb_writer scratch;
+	cdb_writer_init(&scratch);
+
+	int outdated = 0;
+	int header = 0;
+
+	for (int i = 0; i < g->count; i++) {
+		struct dag_node *n = g->nodes[i];
+
+		if (n->type != NODE_CMD) continue;
+
+		const char *first_output;
+		uint32_t cmd_hash;
+
+		if (!node_is_dirty(g, n, &old_db, have_old_db, &scratch,
+		                   &first_output, &cmd_hash))
+			continue;
+
+		outdated++;
+
+		int missing = 0;
+
+		for (struct dag_edge *e = n->outputs; e; e = e->next) {
+			struct dag_node *out = g->nodes[e->node_id];
+			struct kiln_stat st;
+
+			if (out->type == NODE_FILE &&
+			    kiln_stat_file(out->name, &st) != OK) {
+				missing = 1;
+				break;
+			}
+		}
+
+		if (!header) {
+			printf("\nout of date:\n");
+			header = 1;
+		}
+
+		printf("  %s%s\n", first_output ? first_output : "(no output)",
+		       missing ? "   (missing output)" : "");
+	}
+
+	cdb_writer_free(&scratch);
+
+	/* CDB entries whose rule is gone: a cmd: key names an output that is
+	 * no longer a file node in the graph. */
+	struct cdb_iter it;
+	cdb_iter_init(&old_db, &it);
+
+	const void *key, *val;
+	size_t klen, vlen;
+	int stale_header = 0;
+
+	while (cdb_iter_next(&it, &key, &klen, &val, &vlen)) {
+		const char *k = key;
+
+		if (klen <= 4 || memcmp(k, "cmd:", 4) != 0) continue;
+
+		size_t plen = klen - 4;
+		char path[4096];
+
+		if (plen >= sizeof(path)) continue;
+
+		memcpy(path, k + 4, plen);
+		path[plen] = '\0';
+
+		if (dag_find_file(g, path) >= 0) continue;
+
+		if (!stale_header) {
+			printf("\nstale entries (rule removed):\n");
+			stale_header = 1;
+		}
+
+		printf("  %s\n", path);
+	}
+
+	printf("\n  %d target%s, %d up to date, %d out of date\n",
+	       total, total == 1 ? "" : "s", total - outdated, outdated);
+
+	cdb_close(&old_db);
+	return 0;
+}

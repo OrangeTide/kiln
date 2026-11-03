@@ -56,9 +56,11 @@ come first because later phases depend on them.
    Hashing a tool resolved from `$PATH` still needs the config-time `exec` in
    item 6 to turn a bare `cc` into a path.
 
-3. **`-a status`.** Implement the stubbed action: report files in the CDB
-   that are no longer in the DAG, outputs missing on disk, and stale entries.
-   This is the debugging aid the Skjegg ordering comments are crying out for.
+3. **`-a status`. (done)** Reports, without building, which targets are out
+   of date (reusing `node_is_dirty` read-only) and flags missing outputs,
+   then walks the CDB (via a new `cdb_iter`) and lists `cmd:` entries whose
+   rule has been removed. A per-reason "why" breakdown is the fuller explain
+   mode in item 17.
 
 4. **Bundle the standard library. (done)** `lib/kiln.tcl` is embedded into
    the binary by `bin/embed.sh` (generating the committed `src/kiln_stdlib.h`)

@@ -25,6 +25,23 @@ void cdb_close(struct cdb *c);
  */
 const void *cdb_find(struct cdb *c, const void *key, size_t klen, size_t *vlen);
 
+/* cdb_iter walks the records of a CDB sequentially. The records occupy
+ * the span between the fixed header and the first hash table. */
+struct cdb_iter {
+	const unsigned char *p;
+	const unsigned char *end;
+};
+
+/* cdb_iter_init positions it at the first record of c. */
+void cdb_iter_init(struct cdb *c, struct cdb_iter *it);
+
+/*
+ * cdb_iter_next yields the next record's key and value as pointers into
+ * the mapped file (not null-terminated). Returns 1 on success, 0 at end.
+ */
+int cdb_iter_next(struct cdb_iter *it, const void **key, size_t *klen,
+                  const void **val, size_t *vlen);
+
 /* cdb_record is a single key-value pair queued for writing. */
 struct cdb_record {
 	uint32_t hash;

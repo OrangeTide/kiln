@@ -244,8 +244,7 @@ main(int argc, char **argv)
 		if (strcmp(action, "clean") == 0) {
 			result = build_clean(&graph, &cfg);
 		} else if (strcmp(action, "status") == 0) {
-			fprintf(stderr, "kiln: status action not yet implemented\n");
-			result = 1;
+			result = build_status(&graph, &cfg);
 		} else {
 			fprintf(stderr, "kiln: unknown action '%s'\n", action);
 			result = 1;
