@@ -8,6 +8,12 @@
 # reach the rule unexpanded; kiln substitutes them when the rule runs.
 # Plain $vars (a helper's own arguments) are substituted immediately.
 
+# Toolchain defaults. Each may be overridden from the environment, or by
+# setting the global in a Kilnfile before declaring rules. CC is the C
+# compiler and link driver used by the cc_* helpers; set it per target
+# for cross-compilation (e.g. set CC arm-linux-gnueabihf-gcc).
+set CC [getenv CC cc]
+
 # cp_rule dst src
 #   Copy src to dst as a build step.
 proc cp_rule {dst src} {
@@ -18,7 +24,7 @@ proc cp_rule {dst src} {
 #   Compile one C source to an object file, writing a gcc/clang depfile
 #   to dep so header changes are tracked.
 proc cc_object {obj src dep flags} {
-    rule $obj "inputs $src ; depfile $dep ; command {cc $flags -c -o \$out \$in -MMD -MF \$depfile}"
+    rule $obj "inputs $src ; depfile $dep ; command {$CC $flags -c -o \$out \$in -MMD -MF \$depfile}"
 }
 
 # cc_objects sources flags
@@ -42,5 +48,5 @@ proc cc_objects {sources flags} {
 #   Compile each source and link the resulting objects into out.
 proc cc_program {out sources flags} {
     set objs [cc_objects $sources $flags]
-    rule $out "inputs $objs ; command {cc -o \$out \$in}"
+    rule $out "inputs $objs ; command {$CC -o \$out \$in}"
 }

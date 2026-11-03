@@ -105,10 +105,15 @@ and list filtering precisely because the base language is weak.
    only creates the top build directory, not nested output directories. A
    build with a mirrored source tree needs that; see item 18a.
 
-8. **Toolchain configuration.** Offer a convention for declaring a toolchain
-   (compiler, assembler, linker, emulator) with per-target overrides from the
-   environment and the command line, replacing the wall of `?=` defaults. A
-   stdlib helper that reads env vars with fallbacks is likely enough.
+8. **Toolchain configuration. (done)** A `getenv name ?default?` command
+   reads environment variables with fallbacks, so the wall of `?=` becomes
+   `set CC [getenv CC cc]`. The stdlib defaults the global `CC` this way and
+   the `cc_*` helpers compile and link with `$CC` (uppercase, so a Kilnfile
+   can override the global before a rule, and setting it per target gives
+   cross-compilation). Precedence is Kilnfile `set` > environment > the `cc`
+   default. Assembler and linker toolchain vars follow the same `getenv`
+   convention when helpers need them; an emulator/run wrapper waits on the
+   run targets in item 10.
 
 ## Phase 2: targets that are not files
 

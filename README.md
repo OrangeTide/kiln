@@ -132,6 +132,12 @@ The helpers are:
 - `cc_object obj src dep flags` - compile one source with depfile tracking
 - `cp_rule dst src` - copy as a build step
 
+The compiler is the global `CC`, defaulting to `cc`. Override it from
+the environment (`CC=clang kiln ...`) or by setting it in the Kilnfile
+before declaring rules, and set it per target to cross-compile. Use
+`getenv name ?default?` to read any environment variable with a
+fallback, for other toolchain settings.
+
 The library is edited as `lib/kiln.tcl` and embedded with
 `sh bin/embed.sh`, which regenerates `src/kiln_stdlib.h`. The helper set
 will grow as kiln's Tcl surface does.

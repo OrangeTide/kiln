@@ -815,6 +815,30 @@ cmd_exec(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
 }
 
 /***************************************************************************
+ * getenv name ?default?
+ *
+ * Return the value of an environment variable, or the default (or an
+ * empty string) when it is unset. Used to make toolchain settings
+ * overridable from the environment.
+ **************************************************************************/
+
+static int
+cmd_getenv(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc < 2 || argc > 3) return picolArityErr(i, argv[0]);
+
+	char *v = getenv(argv[1]);
+
+	if (v)
+		picolSetResult(i, v);
+	else
+		picolSetResult(i, argc == 3 ? argv[2] : "");
+
+	return PICOL_OK;
+}
+
+/***************************************************************************
  * Register all extension commands
  **************************************************************************/
 void
@@ -834,4 +858,5 @@ kiln_register_ext_commands(struct picolInterp *i)
 	picolRegisterCommand(i, "eval", cmd_eval);
 	picolRegisterCommand(i, "string", cmd_string);
 	picolRegisterCommand(i, "exec", cmd_exec);
+	picolRegisterCommand(i, "getenv", cmd_getenv);
 }

@@ -208,6 +208,13 @@ wrap it in
 .B catch
 to probe optionally.
 Intended for small probes such as compiler version or host detection.
+.TP
+.BI "getenv " "name \fR[\fPdefault\fR]\fP"
+Return the value of the environment variable
+.IR name ,
+or
+.I default
+(or an empty string) when it is unset.
 .SS Predefined Variables
 .TP
 .B $Triplet
@@ -239,6 +246,12 @@ any Kilnfile unless
 .B \-\-no\-stdlib
 is given.
 It defines helper procedures that reduce rule boilerplate.
+The C compiler used by the helpers is the global
+.BR CC ,
+which defaults to
+.B cc
+and may be overridden from the environment or by setting it in a
+Kilnfile; set it per target to cross-compile.
 .TP
 .BI "cc_program " "out sources flags"
 Compile each C source in the

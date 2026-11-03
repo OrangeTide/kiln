@@ -721,6 +721,40 @@ check_contains "exec drives a rule" "$OUT" "built 1 target"
 check "exec rule output" "$(cat out.txt)" "hi"
 
 # =========================================================================
+printf "=== Toolchain configuration ===\n"
+# =========================================================================
+
+TTC="$TMPDIR/toolchain"
+mkdir -p "$TTC"
+cd "$TTC"
+
+echo 'int main(void) { return 0; }' > m.c
+
+cat > g.tcl <<'TCLEOF'
+puts [getenv KILN_NOPE_VAR fallback]
+puts [string length [getenv KILN_NOPE_VAR]]
+TCLEOF
+
+OUT=$("$KILN" --triplet t g.tcl 2>&1)
+check "getenv default" "$(echo "$OUT" | sed -n 1p)" "fallback"
+check "getenv unset is empty" "$(echo "$OUT" | sed -n 2p)" "0"
+
+# A Kilnfile can override the compiler the cc_* helpers use.
+cat > Kilnfile <<'EOF'
+set CC MYCOMPILER
+cc_program app m.c "-O2"
+EOF
+OUT=$("$KILN" --triplet t -n Kilnfile 2>&1)
+check_contains "CC override in Kilnfile" "$OUT" "MYCOMPILER -O2 -c"
+
+# The environment overrides CC when the Kilnfile does not set it.
+cat > Kilnfile2 <<'EOF'
+cc_program app m.c "-O2"
+EOF
+OUT=$(CC=ENVCC "$KILN" --triplet t -n Kilnfile2 2>&1)
+check_contains "CC override from env" "$OUT" "ENVCC -o app"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================
