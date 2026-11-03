@@ -138,10 +138,15 @@ which rules out `check`, `run`, and `install` as first-class targets.
     `addr2line` symbolization do by hand. A failing run should report the
     command and its output the way a failing build command does.
 
-11. **Default targets, aliases, and groups.** Let a Kilnfile declare which
-    targets build by default and define group aliases (one name that expands
-    to many), so `check` can mean "run every test" without the caller listing
-    them.
+11. **Default targets, aliases, and groups. (done)** Positional arguments are
+    now targets, not Kilnfiles; `-f`/`--file` (repeatable, default `Kilnfile`)
+    selects the build description. A requested target builds only its upstream
+    cone: `main` marks that cone in a `needed[]` array that `build_execute`
+    honors, so unrelated rules and phony tasks stay idle. `default <targets>`
+    sets what builds when the command line names none, and `alias <name>
+    { targets }` expands one name to many (recursively), so `check` can mean
+    "run every test". With no CLI targets and no default, the whole graph
+    builds as before.
 
 ## Phase 3: variants, generation, and multiple targets
 

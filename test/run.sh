@@ -59,7 +59,7 @@ printf "=== CLI ===\n"
 OUT=$("$KILN" --help 2>&1 || true)
 check_contains "help flag" "$OUT" "Usage: kiln"
 
-OUT=$("$KILN" --triplet test-triple /dev/null 2>&1 || true)
+OUT=$("$KILN" --triplet test-triple -f /dev/null 2>&1 || true)
 check_not_contains "triplet override" "$OUT" "cc -dumpmachine failed"
 
 OUT=$("$KILN" --bogus 2>&1 || true)
@@ -90,7 +90,7 @@ puts [file extension src/lib/foo.c]
 puts [file rootname src/lib/foo.c]
 TCLEOF
 
-OUT=$("$KILN" --triplet t "$T/test.tcl" 2>&1)
+OUT=$("$KILN" --triplet t -f "$T/test.tcl" 2>&1)
 check "llength" "$(echo "$OUT" | sed -n '1p')" "3"
 check "lindex 0" "$(echo "$OUT" | sed -n '2p')" "alpha"
 check "lindex 2" "$(echo "$OUT" | sed -n '3p')" "charlie"
@@ -114,7 +114,7 @@ set y 2
 badcmd foo
 TCLEOF
 
-OUT=$("$KILN" --triplet t "$T/test.tcl" 2>&1 || true)
+OUT=$("$KILN" --triplet t -f "$T/test.tcl" 2>&1 || true)
 check_contains "error file:line" "$OUT" "test.tcl:3:"
 check_contains "error command name" "$OUT" "badcmd"
 
@@ -129,7 +129,7 @@ set y 2
 puts $noexist
 TCLEOF
 
-OUT=$("$KILN" --triplet t "$T/test2.tcl" 2>&1 || true)
+OUT=$("$KILN" --triplet t -f "$T/test2.tcl" 2>&1 || true)
 check_contains "error line with comments" "$OUT" "test2.tcl:8:"
 
 # =========================================================================
@@ -152,10 +152,10 @@ TCLEOF
 sed "s|LIB_PATH_PLACEHOLDER|$T/lib|" "$T/main.tcl" > "$T/main.tcl.new"
 mv "$T/main.tcl.new" "$T/main.tcl"
 
-OUT=$("$KILN" --triplet t "$T/main.tcl" 2>&1)
+OUT=$("$KILN" --triplet t -f "$T/main.tcl" 2>&1)
 check_contains "source PATH search" "$OUT" "hello"
 
-OUT=$("$KILN" --triplet t -n "$T/main.tcl" 2>&1)
+OUT=$("$KILN" --triplet t -n -f "$T/main.tcl" 2>&1)
 check_contains "source with dry-run" "$OUT" "hello"
 
 # Source error in sourced file
@@ -171,7 +171,7 @@ TCLEOF
 sed "s|LIB_PATH_PLACEHOLDER|$T/lib|" "$T/err.tcl" > "$T/err.tcl.new"
 mv "$T/err.tcl.new" "$T/err.tcl"
 
-OUT=$("$KILN" --triplet t "$T/err.tcl" 2>&1 || true)
+OUT=$("$KILN" --triplet t -f "$T/err.tcl" 2>&1 || true)
 check_contains "error in sourced file" "$OUT" "bad.tcl:2:"
 
 # =========================================================================
@@ -192,7 +192,7 @@ rule b.o {
 }
 TCLEOF
 
-OUT=$("$KILN" --triplet t "$T/cycle.tcl" 2>&1 || true)
+OUT=$("$KILN" --triplet t -f "$T/cycle.tcl" 2>&1 || true)
 check_contains "cycle detected" "$OUT" "dependency cycle"
 
 # Multiple outputs
@@ -203,7 +203,7 @@ rule {parse.c parse.h} {
 }
 TCLEOF
 
-OUT=$("$KILN" --triplet t -n "$T/multi.tcl" 2>&1)
+OUT=$("$KILN" --triplet t -n -f "$T/multi.tcl" 2>&1)
 check_contains "multi-output rule" "$OUT" "bison"
 
 # =========================================================================
@@ -244,7 +244,7 @@ EOF
 
 cd "$T"
 
-OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+OUT=$("$KILN" --triplet test -f Kilnfile 2>&1)
 check_contains "clean build count" "$OUT" "built 3 targets"
 check_file_exists "clean build: main.o" "$T/main.o"
 check_file_exists "clean build: util.o" "$T/util.o"
@@ -257,7 +257,7 @@ check "clean build output" "$RESULT" "5"
 printf "=== Build: incremental no-op ===\n"
 # =========================================================================
 
-OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+OUT=$("$KILN" --triplet test -f Kilnfile 2>&1)
 check_contains "no-op rebuild" "$OUT" "nothing to do"
 
 # =========================================================================
@@ -267,7 +267,7 @@ printf "=== Build: touch without content change ===\n"
 sleep 1  # ensure mtime differs
 touch "$T/util.c"
 
-OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+OUT=$("$KILN" --triplet test -f Kilnfile 2>&1)
 check_contains "touch no-op" "$OUT" "nothing to do"
 
 # =========================================================================
@@ -279,7 +279,7 @@ cat > "$T/util.c" <<'EOF'
 int add(int a, int b) { return a + b + 10; }
 EOF
 
-OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+OUT=$("$KILN" --triplet test -f Kilnfile 2>&1)
 check_contains "cascade: util.o rebuilt" "$OUT" "cc -c -o util.o"
 check_contains "cascade: hello relinked" "$OUT" "cc -o hello"
 check_not_contains "cascade: main.o skipped" "$OUT" "cc -c -o main.o"
@@ -297,7 +297,7 @@ int add(int a, int b);
 /* force rebuild */
 EOF
 
-OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+OUT=$("$KILN" --triplet test -f Kilnfile 2>&1)
 check_contains "header: main.o rebuilt" "$OUT" "cc -c -o main.o"
 check_contains "header: util.o rebuilt" "$OUT" "cc -c -o util.o"
 check_contains "header: hello relinked" "$OUT" "cc -o hello"
@@ -325,7 +325,7 @@ rule hello {
 }
 EOF
 
-OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+OUT=$("$KILN" --triplet test -f Kilnfile 2>&1)
 check_contains "cmd change: recompile" "$OUT" "-O2"
 check_contains "cmd change: count" "$OUT" "built 3 targets"
 
@@ -347,7 +347,7 @@ rule hello {
 }
 EOF
 
-OUT=$("$KILN" --triplet test Kilnfile 2>&1)
+OUT=$("$KILN" --triplet test -f Kilnfile 2>&1)
 check_contains "cmd same: no-op" "$OUT" "nothing to do"
 
 # =========================================================================
@@ -376,15 +376,15 @@ EOF
 
 cd "$TP"
 
-OUT=$("$KILN" --triplet test -j 4 Kilnfile 2>&1)
+OUT=$("$KILN" --triplet test -j 4 -f Kilnfile 2>&1)
 check_contains "parallel build count" "$OUT" "built 2 targets"
 check_file_exists "parallel build: a" "$TP/a"
 check_file_exists "parallel build: b" "$TP/b"
 
-OUT=$("$KILN" --triplet test -j 4 Kilnfile 2>&1)
+OUT=$("$KILN" --triplet test -j 4 -f Kilnfile 2>&1)
 check_contains "parallel no-op rebuild" "$OUT" "nothing to do"
 
-OUT=$("$KILN" --triplet test -j 1 Kilnfile 2>&1)
+OUT=$("$KILN" --triplet test -j 1 -f Kilnfile 2>&1)
 check_contains "serial (-j 1) no-op" "$OUT" "nothing to do"
 
 # =========================================================================
@@ -405,7 +405,7 @@ rule bad.o {
 EOF
 
 cd "$T2"
-OUT=$("$KILN" --triplet test Kilnfile 2>&1 || true)
+OUT=$("$KILN" --triplet test -f Kilnfile 2>&1 || true)
 check_contains "failure message" "$OUT" "command failed"
 check_file_missing "output deleted on fail" "$T2/bad.o"
 
@@ -417,7 +417,7 @@ cd "$T"
 rm -f "$T/main.o" "$T/util.o" "$T/hello" "$T/main.d" "$T/util.d"
 rm -rf "$T/build"
 
-OUT=$("$KILN" --triplet test -n Kilnfile 2>&1)
+OUT=$("$KILN" --triplet test -n -f Kilnfile 2>&1)
 check_contains "dry-run shows commands" "$OUT" "cc -c"
 check_file_missing "dry-run: no main.o" "$T/main.o"
 check_file_missing "dry-run: no hello" "$T/hello"
@@ -440,11 +440,11 @@ rule q.txt {
 EOF
 
 # $in expands and the literal double quotes survive into the command.
-OUT=$("$KILN" --triplet t -n Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -n -f Kilnfile 2>&1)
 check_contains "quoted command expands \$in" "$OUT" "cp src.txt q.txt"
 check_contains "quoted command keeps quotes" "$OUT" '"cp src.txt q.txt"'
 
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "quoted command builds" "$OUT" "built 1 target"
 check "quoted command output" "$(cat q.txt)" "hi"
 
@@ -472,18 +472,18 @@ rule probe.txt {
 }
 EOF
 
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "uses: initial build" "$OUT" "built 2 targets"
 check_file_exists "uses: out.txt" "$TU/out.txt"
 check "uses: tool kept out of \$in" "$(cat probe.txt)" "in.txt"
 
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "uses: no-op when tool unchanged" "$OUT" "nothing to do"
 
 # Changing the tool forces a rebuild even though inputs are unchanged.
 sleep 1
 printf 'cp "$1" "$2"; echo TOOL2 >> "$2"\n' > gen.sh
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_not_contains "uses: tool change rebuilds" "$OUT" "nothing to do"
 check_contains "uses: output regenerated" "$(cat out.txt)" "TOOL2"
 
@@ -508,13 +508,13 @@ rule out.txt {
 }
 EOF
 
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "uses in-tree: tool and user built" "$OUT" "built 2 targets"
 check_file_exists "uses in-tree: out.txt" "$TV/out.txt"
 
 sleep 1
 printf 'cp "$1" "$2"; echo TOOL2 >> "$2"\n' > tool.src
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "uses in-tree: tool rebuild cascades" "$OUT" "built 2 targets"
 check_contains "uses in-tree: output regenerated" "$(cat out.txt)" "TOOL2"
 
@@ -532,12 +532,12 @@ cat > Kilnfile <<'EOF'
 cp_rule copy.txt src.txt
 EOF
 
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "stdlib cp_rule builds" "$OUT" "built 1 target"
 check "stdlib cp_rule output" "$(cat copy.txt)" "payload"
 
 # --no-stdlib must leave the helpers undefined.
-OUT=$("$KILN" --no-stdlib --triplet t Kilnfile 2>&1 || true)
+OUT=$("$KILN" --no-stdlib --triplet t -f Kilnfile 2>&1 || true)
 check_contains "no-stdlib disables helpers" "$OUT" "No such command"
 
 cat > o.c <<'EOF'
@@ -547,7 +547,7 @@ cat > Kilnfile <<'EOF'
 cc_object o.o o.c o.d "-O2"
 EOF
 
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "stdlib cc_object builds" "$OUT" "built 1 target"
 check_file_exists "stdlib cc_object output" "$TS/o.o"
 check_file_exists "stdlib cc_object depfile" "$TS/o.d"
@@ -564,7 +564,7 @@ cat > Kilnfile <<'EOF'
 cc_program app "prog.c helper.c" "-O2"
 EOF
 
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "stdlib cc_program builds" "$OUT" "built 3 targets"
 check_file_exists "stdlib cc_program output" "$TS/app"
 check_file_exists "stdlib cc_program object" "$TS/helper.o"
@@ -591,38 +591,38 @@ rule b.o {
 }
 EOF
 
-OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -a status -f Kilnfile 2>&1)
 check_contains "status: no build state" "$OUT" "no build state"
 
-"$KILN" --triplet t Kilnfile >/dev/null 2>&1
+"$KILN" --triplet t -f Kilnfile >/dev/null 2>&1
 
-OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -a status -f Kilnfile 2>&1)
 check_contains "status: all up to date" "$OUT" "2 up to date"
 
 # A changed input is reported, and status must not build it.
 sleep 1
 echo changed > a.c
-OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -a status -f Kilnfile 2>&1)
 check_contains "status: out of date count" "$OUT" "1 out of date"
 check_contains "status: names target" "$OUT" "a.o"
 check "status: did not build" "$(cat a.o)" "a"
 
 # A missing output is flagged.
 echo a > a.c
-"$KILN" --triplet t Kilnfile >/dev/null 2>&1
+"$KILN" --triplet t -f Kilnfile >/dev/null 2>&1
 rm -f b.o
-OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -a status -f Kilnfile 2>&1)
 check_contains "status: missing output" "$OUT" "missing output"
 
 # A removed rule leaves a stale CDB entry.
-"$KILN" --triplet t Kilnfile >/dev/null 2>&1
+"$KILN" --triplet t -f Kilnfile >/dev/null 2>&1
 cat > Kilnfile <<'EOF'
 rule a.o {
     inputs a.c
     command {cp $in $out}
 }
 EOF
-OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -a status -f Kilnfile 2>&1)
 check_contains "status: stale entry header" "$OUT" "stale entries"
 check_contains "status: stale entry name" "$OUT" "b.o"
 
@@ -652,7 +652,7 @@ puts [string map {a X} banana]
 puts [catch {nosuchcmd}]
 TCLEOF
 
-OUT=$("$KILN" --triplet t "$TX/t.tcl" 2>&1)
+OUT=$("$KILN" --triplet t -f "$TX/t.tcl" 2>&1)
 check "list/llength" "$(echo "$OUT" | sed -n 1p)" "3"
 check "lappend" "$(echo "$OUT" | sed -n 2p)" "one two"
 check "foreach count" "$(echo "$OUT" | sed -n 3p)" "3"
@@ -685,7 +685,7 @@ rule all.txt {
 }
 EOF
 
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "foreach-generated rules build" "$OUT" "built 3 targets"
 check_file_exists "foreach rule output a.o" "$TXR/a.o"
 check_file_exists "foreach collected link" "$TXR/all.txt"
@@ -703,7 +703,7 @@ puts [exec echo a b c]
 puts [catch {exec false}]
 TCLEOF
 
-OUT=$("$KILN" --triplet t "$TE/t.tcl" 2>&1)
+OUT=$("$KILN" --triplet t -f "$TE/t.tcl" 2>&1)
 check "exec output" "$(echo "$OUT" | sed -n 1p)" "hello"
 check "exec joins args" "$(echo "$OUT" | sed -n 2p)" "a b c"
 check "exec failure via catch" "$(echo "$OUT" | sed -n 3p)" "1"
@@ -716,7 +716,7 @@ rule out.txt {
 }
 EOF
 
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "exec drives a rule" "$OUT" "built 1 target"
 check "exec rule output" "$(cat out.txt)" "hi"
 
@@ -735,7 +735,7 @@ puts [getenv KILN_NOPE_VAR fallback]
 puts [string length [getenv KILN_NOPE_VAR]]
 TCLEOF
 
-OUT=$("$KILN" --triplet t g.tcl 2>&1)
+OUT=$("$KILN" --triplet t -f g.tcl 2>&1)
 check "getenv default" "$(echo "$OUT" | sed -n 1p)" "fallback"
 check "getenv unset is empty" "$(echo "$OUT" | sed -n 2p)" "0"
 
@@ -744,14 +744,14 @@ cat > Kilnfile <<'EOF'
 set CC MYCOMPILER
 cc_program app m.c "-O2"
 EOF
-OUT=$("$KILN" --triplet t -n Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -n -f Kilnfile 2>&1)
 check_contains "CC override in Kilnfile" "$OUT" "MYCOMPILER -O2 -c"
 
 # The environment overrides CC when the Kilnfile does not set it.
 cat > Kilnfile2 <<'EOF'
 cc_program app m.c "-O2"
 EOF
-OUT=$(CC=ENVCC "$KILN" --triplet t -n Kilnfile2 2>&1)
+OUT=$(CC=ENVCC "$KILN" --triplet t -n -f Kilnfile2 2>&1)
 check_contains "CC override from env" "$OUT" "ENVCC -o app"
 
 # =========================================================================
@@ -775,16 +775,16 @@ phony show {
 }
 EOF
 
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "phony: first build runs file and phony" "$OUT" "built 2 targets"
 check_contains "phony: command output" "$OUT" "hi"
 
 # The file target is up to date, but the phony still runs.
-OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1)
 check_contains "phony: reruns when file up to date" "$OUT" "built 1 target"
 check_contains "phony: still produces output" "$OUT" "hi"
 
-OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+OUT=$("$KILN" --triplet t -a status -f Kilnfile 2>&1)
 check_contains "phony: status labels by name" "$OUT" "show"
 
 cat > Kilnfile <<'EOF'
@@ -792,8 +792,57 @@ phony bad {
     inputs src.txt
 }
 EOF
-OUT=$("$KILN" --triplet t Kilnfile 2>&1 || true)
+OUT=$("$KILN" --triplet t -f Kilnfile 2>&1 || true)
 check_contains "phony: missing command errors" "$OUT" "no command specified"
+
+# =========================================================================
+printf "=== Target selection ===\n"
+# =========================================================================
+
+TSEL="$TMPDIR/select"
+mkdir -p "$TSEL"
+cd "$TSEL"
+
+cat > Kilnfile <<'EOF'
+rule dep.txt {
+    command {sh -c "echo D > dep.txt"}
+}
+rule app {
+    inputs dep.txt
+    command {sh -c "echo A > app"}
+}
+rule other.txt {
+    command {sh -c "echo O > other.txt"}
+}
+default app
+alias everything {app other.txt}
+EOF
+
+# An explicit target builds only its own cone: app pulls in dep.txt but
+# leaves the unrelated other.txt alone.
+OUT=$("$KILN" --triplet t app 2>&1)
+check_contains "select: requested target builds its cone" "$OUT" "built 2 targets"
+check_file_exists "select: app built" "$TSEL/app"
+check_file_exists "select: dependency built" "$TSEL/dep.txt"
+check_file_missing "select: unrelated target skipped" "$TSEL/other.txt"
+
+# A bare invocation builds the declared default.
+rm -f app dep.txt other.txt
+OUT=$("$KILN" --triplet t 2>&1)
+check_contains "select: default target used" "$OUT" "built 2 targets"
+check_file_exists "select: default built app" "$TSEL/app"
+check_file_missing "select: default skips other" "$TSEL/other.txt"
+
+# An alias expands to several targets.
+rm -f app dep.txt other.txt
+OUT=$("$KILN" --triplet t everything 2>&1)
+check_contains "select: alias builds all members" "$OUT" "built 3 targets"
+check_file_exists "select: alias built app" "$TSEL/app"
+check_file_exists "select: alias built other" "$TSEL/other.txt"
+
+# An unknown target is a hard error.
+OUT=$("$KILN" --triplet t nosuch 2>&1 || true)
+check_contains "select: unknown target errors" "$OUT" "unknown target 'nosuch'"
 
 # =========================================================================
 printf "\n=== Results ===\n"

@@ -26,7 +26,32 @@ The triplet is detected automatically via
 .B cc \-dumpmachine
 or set explicitly with
 .BR \-\-triplet .
+.PP
+By default
+.B kiln
+reads
+.I ./Kilnfile
+and builds the target named by
+.B default
+in that file, or every target if no default is declared.
+Naming one or more
+.I target
+arguments builds just those targets and the files they depend on.
+A target may be a file produced by a
+.BR rule ,
+a
+.B phony
+task, or an
+.B alias
+that expands to several targets.
 .SH OPTIONS
+.TP
+.BI \-f " file" "\fR,\fP \-\-file " file
+Read the build description from
+.I file
+instead of
+.IR ./Kilnfile .
+May be specified multiple times; files are evaluated in order.
 .TP
 .BI \-a " action" "\fR,\fP \-\-action " action
 Run a built-in action instead of building targets.
@@ -146,6 +171,18 @@ uses the same commands as
 .BR rule .
 A phony target has no output to check for freshness, so it runs
 whenever the build reaches it.
+Name it on the command line to run it on demand rather than on every build.
+.TP
+.BI "default " "target ..."
+Set the target or targets built when the command line names none.
+.TP
+.BI "alias " "name " { " target ... " }
+Give a single
+.I name
+to a list of targets, so one argument can stand for many.
+An alias may refer to other aliases;
+.B kiln
+expands them until it reaches real targets.
 .TP
 .BI "source " filename
 Read and evaluate another Tcl file.
@@ -332,11 +369,20 @@ All targets are up to date or were built successfully.
 .B 1
 A build command failed, a cycle was detected, or an error occurred.
 .SH EXAMPLES
-Build a project:
+Build the default target from
+.IR ./Kilnfile :
 .PP
 .RS
 .nf
-kiln Kilnfile
+kiln
+.fi
+.RE
+.PP
+Build named targets and their dependencies:
+.PP
+.RS
+.nf
+kiln app test
 .fi
 .RE
 .PP
@@ -344,7 +390,7 @@ Clean all outputs:
 .PP
 .RS
 .nf
-kiln -a clean Kilnfile
+kiln -a clean
 .fi
 .RE
 .PP
@@ -352,15 +398,16 @@ Dry run with explicit triplet:
 .PP
 .RS
 .nf
-kiln -n --triplet arm-linux-gnueabihf Kilnfile
+kiln -n --triplet arm-linux-gnueabihf
 .fi
 .RE
 .PP
-Use a custom library instead of the standard library:
+Use a custom library and a build description other than
+.IR ./Kilnfile :
 .PP
 .RS
 .nf
-kiln --no-stdlib --lib my-stdlib.tcl Kilnfile
+kiln --no-stdlib --lib my-stdlib.tcl -f project.kiln
 .fi
 .RE
 .PP

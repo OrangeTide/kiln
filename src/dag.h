@@ -87,6 +87,9 @@ int dag_add_phony(struct dag *g, const char *name);
 /* dag_find_file returns the id of a file node, or -1 if not found. */
 int dag_find_file(struct dag *g, const char *path);
 
+/* dag_find_phony returns the id of a phony node by name, or -1. */
+int dag_find_phony(struct dag *g, const char *name);
+
 /* dag_file finds or creates a file node, returning its id. */
 int dag_file(struct dag *g, const char *path);
 

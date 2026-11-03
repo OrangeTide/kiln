@@ -14,8 +14,12 @@ struct build_config {
 	int jobs;               /* max commands to run at once (>= 1) */
 };
 
-/* build_execute runs the build plan. Returns 0 on success, 1 on failure. */
-int build_execute(struct dag *g, struct build_config *cfg);
+/*
+ * build_execute runs the build plan. Returns 0 on success, 1 on failure.
+ * If needed is non-NULL, it is an array indexed by node id: only nodes
+ * whose entry is nonzero are built. A NULL needed builds every node.
+ */
+int build_execute(struct dag *g, struct build_config *cfg, const int *needed);
 
 /* build_clean deletes all output files declared in the DAG and removes
  * empty parent directories. Also removes the CDB file. */

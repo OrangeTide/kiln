@@ -537,6 +537,114 @@ cmd_builddir(struct picolInterp *i, int argc, char **argv,
 }
 
 /***************************************************************************
+ * Target selection: default targets and aliases, consulted by main.
+ **************************************************************************/
+
+struct kiln_alias {
+	char *name;
+	char *targets;         // space-separated target names
+	struct kiln_alias *next;
+};
+
+static struct kiln_alias *g_aliases;
+static char *g_default;        // space-separated default target names
+
+/* Append a word to a space-separated list, no builddir resolution. */
+static void
+append_word(char **dst, const char *w)
+{
+	size_t wl = strlen(w);
+	size_t ex = *dst ? strlen(*dst) : 0;
+	int sep = ex > 0 ? 1 : 0;
+
+	*dst = xrealloc(*dst, ex + sep + wl + 1);
+
+	if (sep) (*dst)[ex++] = ' ';
+
+	memcpy(*dst + ex, w, wl + 1);
+}
+
+/**
+ * default target ...
+ *
+ * Declare the targets built when none are named on the command line.
+ */
+static int
+cmd_default(struct picolInterp *i, int argc, char **argv,
+            struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc < 2) return picolArityErr(i, argv[0]);
+
+	for (int j = 1; j < argc; j++)
+		append_word(&g_default, argv[j]);
+
+	return PICOL_OK;
+}
+
+/**
+ * alias name target ...
+ *
+ * Define a name that expands to one or more targets, so building the
+ * name builds them all.
+ */
+static int
+cmd_alias(struct picolInterp *i, int argc, char **argv,
+          struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc < 3) return picolArityErr(i, argv[0]);
+
+	char *targets = NULL;
+
+	for (int j = 2; j < argc; j++)
+		append_word(&targets, argv[j]);
+
+	struct kiln_alias *a = xmalloc(sizeof(*a));
+	a->name = xstrdup(argv[1]);
+	a->targets = targets ? targets : xstrdup("");
+	a->next = g_aliases;
+	g_aliases = a;
+	return PICOL_OK;
+}
+
+/* kiln_lookup_alias returns the targets an alias expands to, or NULL. */
+const char *
+kiln_lookup_alias(const char *name)
+{
+	for (struct kiln_alias *a = g_aliases; a; a = a->next)
+		if (strcmp(a->name, name) == 0) return a->targets;
+
+	return NULL;
+}
+
+/* kiln_get_default returns the declared default targets, or NULL. */
+const char *
+kiln_get_default(void)
+{
+	return g_default;
+}
+
+/* kiln_free_commands releases alias and default storage. */
+void
+kiln_free_commands(void)
+{
+	struct kiln_alias *a = g_aliases;
+
+	while (a) {
+		struct kiln_alias *next = a->next;
+		free(a->name);
+		free(a->targets);
+		free(a);
+		a = next;
+	}
+
+	g_aliases = NULL;
+	free(g_default);
+	g_default = NULL;
+}
+
+/***************************************************************************
  * Register all kiln build commands
  **************************************************************************/
 void
@@ -544,6 +652,8 @@ kiln_register_commands(struct picolInterp *i)
 {
 	picolRegisterCommand(i, "rule", cmd_rule);
 	picolRegisterCommand(i, "phony", cmd_phony);
+	picolRegisterCommand(i, "default", cmd_default);
+	picolRegisterCommand(i, "alias", cmd_alias);
 	picolRegisterCommand(i, "source", cmd_source);
 	picolRegisterCommand(i, "builddir", cmd_builddir);
 }

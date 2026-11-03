@@ -185,6 +185,17 @@ dag_find_file(struct dag *g, const char *path)
 }
 
 int
+dag_find_phony(struct dag *g, const char *name)
+{
+	for (int i = 0; i < g->count; i++)
+		if (g->nodes[i]->type == NODE_PHONY && g->nodes[i]->name &&
+		    strcmp(g->nodes[i]->name, name) == 0)
+			return i;
+
+	return -1;
+}
+
+int
 dag_file(struct dag *g, const char *path)
 {
 	int id = dag_find_file(g, path);

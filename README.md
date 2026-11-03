@@ -43,11 +43,19 @@ cc -O2 -o kiln bootstrap.c
 ## Usage
 
 ```sh
-kiln Kilnfile                # build all targets
-kiln -a clean Kilnfile       # delete all outputs, remove empty dirs
-kiln -n Kilnfile             # dry run (print commands only)
-kiln --triplet arm-linux-gnueabihf Kilnfile   # cross-compile
+kiln                         # build the default target from ./Kilnfile
+kiln app test                # build the named targets and their dependencies
+kiln -f other.kiln           # read a build description other than ./Kilnfile
+kiln -a clean                # delete all outputs, remove empty dirs
+kiln -n                      # dry run (print commands only)
+kiln --triplet arm-linux-gnueabihf   # cross-compile
 ```
+
+kiln reads `./Kilnfile` by default; pass `-f` one or more times to read
+other files. Any non-option arguments are targets to build: a file name a
+rule produces, a `phony` task, or an `alias`. With no targets, kiln builds
+the `default` declared in the Kilnfile, or every target if none is
+declared. A requested target builds only itself and what it depends on.
 
 ## Example Kilnfile
 
@@ -125,8 +133,23 @@ phony run {
 ```
 
 Because a phony target has no output to prove it is up to date, it runs
-whenever the build reaches it. kiln currently builds the whole DAG, so a
-phony runs on every build; per-target selection is on the roadmap.
+whenever the build reaches it. Name it on the command line (`kiln run`) to
+run it on demand instead of on every build.
+
+## Default Targets and Aliases
+
+`default` names the target or targets to build when the command line names
+none. `alias` gives one name to a list of targets, so a single word can
+stand for many:
+
+```tcl
+default app
+alias check {test-parser test-lexer}
+```
+
+With this, `kiln` builds `app`, and `kiln check` runs both test targets. An
+alias may refer to other aliases; kiln expands them until it reaches real
+targets.
 
 ## Standard Library
 
@@ -199,6 +222,7 @@ sh doc/gen-screenshot.sh
 
 | Flag | Description |
 |------|-------------|
+| `-f F`, `--file F` | Read build description F (default `Kilnfile`; repeatable) |
 | `-a clean` | Delete all declared outputs and empty parent dirs |
 | `-a status` | Report out-of-date targets and stale database entries |
 | `--triplet T` | Set target triplet (skip `cc -dumpmachine`) |

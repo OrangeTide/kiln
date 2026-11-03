@@ -93,8 +93,8 @@ still use them.
 kiln uses `--action` (`-a`) for built-in operations that are not
 targets, avoiding ambiguity when a target happens to share a name:
 
-    kiln -a clean Kilnfile    # delete all DAG-declared outputs
-    kiln -a status Kilnfile   # report out-of-date targets and stale CDB entries
+    kiln -a clean    # delete all DAG-declared outputs
+    kiln -a status   # report out-of-date targets and stale CDB entries
 
 `clean` walks all NODE_FILE nodes in the DAG, identifies outputs (files
 with a NODE_CMD producer edge), deletes them, then removes empty parent
@@ -142,6 +142,8 @@ Build descriptions are written in Tcl and loaded from files named
       depfile <path>           # optional gcc-style depfile
 
     phony <name> { body }      # named task target, no file output
+    default <targets...>       # targets to build when none are named
+    alias <name> { targets }   # one name expanding to several targets
     source <filename>          # include another Kilnfile
     builddir <path>            # set output prefix (sets $BuildDir)
 
@@ -150,6 +152,18 @@ and `$BuildDir` (set once `builddir` or `--builddir` is used).
 
 The `--builddir` command-line flag takes precedence over a `builddir`
 command in the Kilnfile.
+
+## Target selection
+
+kiln reads `./Kilnfile` by default; `-f`/`--file` overrides that and may
+be repeated. Positional arguments are targets, not files. `main()` marks
+the upstream cone of each requested target in a `needed[]` array (indexed
+by node id) and passes it to `build_execute`, which skips any node not
+marked. `select_target` resolves a name as an `alias` (expanded
+recursively via `kiln_lookup_alias`), then a phony (`dag_find_phony`),
+then a file (`dag_find_file`); `mark_cone` walks `->inputs` from the
+resolved node. With no CLI targets, a `default` declaration is used; with
+neither, `needed` stays NULL and the whole graph builds.
 
 ## Standard Library
 

@@ -524,19 +524,22 @@ record_built(struct dag *g, struct dag_node *n, struct cdb *old_db,
  */
 static void
 sched_complete(struct dag *g, struct dag_node *n, int *mark, int *epoch,
-               int *pending, int *ready, int *ready_count)
+               int *pending, int *ready, int *ready_count,
+               const int *needed)
 {
 	(*epoch)++;
 
 	for (struct dag_edge *e = n->outputs; e; e = e->next) {
 		struct dag_node *f = g->nodes[e->node_id];
 
-		if (f->type != NODE_FILE) continue;
-
 		for (struct dag_edge *ce = f->outputs; ce; ce = ce->next) {
 			struct dag_node *c = g->nodes[ce->node_id];
 
 			if (c->type != NODE_CMD || mark[c->id] == *epoch) continue;
+
+			/* A completed command can feed a command outside the
+			 * selected set; do not pull that into the build. */
+			if (needed && !needed[c->id]) continue;
 
 			mark[c->id] = *epoch;
 
@@ -558,7 +561,7 @@ struct build_job {
 };
 
 int
-build_execute(struct dag *g, struct build_config *cfg)
+build_execute(struct dag *g, struct build_config *cfg, const int *needed)
 {
 	/* Ensure build directory exists */
 	kiln_mkdir_p(cfg->build_dir);
@@ -594,7 +597,10 @@ build_execute(struct dag *g, struct build_config *cfg)
 
 		if (n->type != NODE_CMD) continue;
 
-		total_cmds++;
+		int wanted = (!needed || needed[n->id]);
+
+		if (wanted) total_cmds++;
+
 		epoch++;
 		int preds = 0;
 
@@ -616,7 +622,7 @@ build_execute(struct dag *g, struct build_config *cfg)
 
 		pending[n->id] = preds;
 
-		if (preds == 0)
+		if (preds == 0 && wanted)
 			ready[ready_count++] = n->id;
 	}
 
@@ -645,7 +651,7 @@ build_execute(struct dag *g, struct build_config *cfg)
 			                   &first_output, &cmd_hash)) {
 				n->state = STATE_DONE;
 				sched_complete(g, n, mark, &epoch, pending,
-				               ready, &ready_count);
+				               ready, &ready_count, needed);
 				continue;
 			}
 
@@ -653,7 +659,7 @@ build_execute(struct dag *g, struct build_config *cfg)
 				printf("%s\n", n->command);
 				n->state = STATE_DONE;
 				sched_complete(g, n, mark, &epoch, pending,
-				               ready, &ready_count);
+				               ready, &ready_count, needed);
 				continue;
 			}
 
@@ -713,7 +719,8 @@ build_execute(struct dag *g, struct build_config *cfg)
 		j.n->state = STATE_BUILDING; /* marks "executed this run" */
 		built++;
 		record_built(g, j.n, &old_db, &new_db, j.first_output, j.cmd_hash);
-		sched_complete(g, j.n, mark, &epoch, pending, ready, &ready_count);
+		sched_complete(g, j.n, mark, &epoch, pending, ready,
+		               &ready_count, needed);
 	}
 
 	free(pending);

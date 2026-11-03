@@ -60,6 +60,82 @@ eval_file(struct picolInterp *interp, const char *path)
 	return 0;
 }
 
+/*
+ * mark_cone marks a node and its entire upstream cone (everything it
+ * depends on, transitively) in the needed array.
+ */
+static void
+mark_cone(struct dag *g, int id, int *needed)
+{
+	if (needed[id]) return;
+
+	needed[id] = 1;
+
+	for (struct dag_edge *e = g->nodes[id]->inputs; e; e = e->next)
+		mark_cone(g, e->node_id, needed);
+}
+
+static int select_target(struct dag *g, const char *name, int *needed);
+
+/*
+ * select_target_list splits a whitespace-separated list of target names
+ * and selects each one. Returns 0 if all resolved, 1 otherwise.
+ */
+static int
+select_target_list(struct dag *g, const char *list, int *needed)
+{
+	const char *p = list;
+	int err = 0;
+
+	while (*p) {
+		while (*p == ' ' || *p == '\t' || *p == '\n') p++;
+
+		if (!*p) break;
+
+		const char *start = p;
+
+		while (*p && *p != ' ' && *p != '\t' && *p != '\n') p++;
+
+		size_t len = p - start;
+		char *word = xmalloc(len + 1);
+		memcpy(word, start, len);
+		word[len] = '\0';
+
+		if (select_target(g, word, needed) != 0) err = 1;
+
+		free(word);
+	}
+
+	return err;
+}
+
+/*
+ * select_target resolves one target name and marks its build cone. An
+ * alias expands (recursively) to its target list; otherwise the name is
+ * looked up as a phony target, then as a file. Returns 0 on success, 1
+ * if the name could not be resolved.
+ */
+static int
+select_target(struct dag *g, const char *name, int *needed)
+{
+	const char *alias = kiln_lookup_alias(name);
+
+	if (alias)
+		return select_target_list(g, alias, needed);
+
+	int id = dag_find_phony(g, name);
+
+	if (id < 0) id = dag_find_file(g, name);
+
+	if (id < 0) {
+		fprintf(stderr, "kiln: unknown target '%s'\n", name);
+		return 1;
+	}
+
+	mark_cone(g, id, needed);
+	return 0;
+}
+
 #define MAX_LIBS 64
 
 static void
@@ -67,6 +143,8 @@ usage(void)
 {
 	fprintf(stderr, "Usage: kiln [options] [target...]\n"
 	        "Options:\n"
+	        "  -f, --file <file>    Read build description (default: Kilnfile;\n"
+	        "                       repeatable)\n"
 	        "  --triplet <triplet>  Set target triplet (skip cc -dumpmachine)\n"
 	        "  --builddir <path>    Set build directory prefix for rule outputs\n"
 	        "  -a, --action <name>  Run a built-in action (clean, status)\n"
@@ -97,25 +175,37 @@ main(int argc, char **argv)
 	const char *action = NULL;
 	const char *libs[MAX_LIBS];
 	int lib_count = 0;
+	const char *files[MAX_LIBS];
+	int file_count = 0;
+	const char **targets = xmalloc(sizeof(char *) * (argc > 0 ? argc : 1));
+	int target_count = 0;
 	int no_stdlib = 0;
 	int dry_run = 0;
 	int jobs = 0;
-	int i;
+	int result = 0;
+	int *needed = NULL;
 
-	for (i = 1; i < argc; i++) {
+	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--triplet") == 0 && i + 1 < argc) {
 			triplet = argv[++i];
 		} else if (strcmp(argv[i], "--builddir") == 0 && i + 1 < argc) {
 			builddir = argv[++i];
+		} else if ((strcmp(argv[i], "-f") == 0 ||
+		            strcmp(argv[i], "--file") == 0) && i + 1 < argc) {
+			if (file_count >= MAX_LIBS) {
+				fprintf(stderr, "kiln: too many -f arguments\n");
+				result = 1;
+				goto cleanup;
+			}
+			files[file_count++] = argv[++i];
 		} else if ((strcmp(argv[i], "-a") == 0 ||
 		            strcmp(argv[i], "--action") == 0) && i + 1 < argc) {
 			action = argv[++i];
 		} else if (strcmp(argv[i], "--lib") == 0 && i + 1 < argc) {
 			if (lib_count >= MAX_LIBS) {
 				fprintf(stderr, "kiln: too many --lib arguments\n");
-				picolFreeInterp(interp);
-				dag_free(&graph);
-				return 1;
+				result = 1;
+				goto cleanup;
 			}
 			libs[lib_count++] = argv[++i];
 		} else if (strcmp(argv[i], "--no-stdlib") == 0) {
@@ -128,19 +218,20 @@ main(int argc, char **argv)
 		} else if (strcmp(argv[i], "-h") == 0 ||
 		           strcmp(argv[i], "--help") == 0) {
 			usage();
-			picolFreeInterp(interp);
-			dag_free(&graph);
-			return 0;
+			goto cleanup;
 		} else if (argv[i][0] == '-') {
 			fprintf(stderr, "kiln: unknown option '%s'\n", argv[i]);
 			usage();
-			picolFreeInterp(interp);
-			dag_free(&graph);
-			return 1;
+			result = 1;
+			goto cleanup;
 		} else {
-			break; /* remaining args are targets */
+			targets[target_count++] = argv[i];
 		}
 	}
+
+	/* Default to a single "Kilnfile" when no -f was given */
+	if (file_count == 0)
+		files[file_count++] = "Kilnfile";
 
 	/* Detect triplet */
 	char triplet_buf[256];
@@ -149,9 +240,8 @@ main(int argc, char **argv)
 		if (kiln_run_capture("cc -dumpmachine", triplet_buf, sizeof(triplet_buf)) != OK) {
 			fprintf(stderr, "kiln: cc -dumpmachine failed. "
 			        "Use --triplet to specify the target triplet.\n");
-			picolFreeInterp(interp);
-			dag_free(&graph);
-			return 1;
+			result = 1;
+			goto cleanup;
 		}
 
 		triplet = triplet_buf;
@@ -179,27 +269,24 @@ main(int argc, char **argv)
 		if (picolEval(interp, kiln_stdlib_tcl) != PICOL_OK) {
 			fprintf(stderr, "kiln: standard library error: %s\n",
 			        interp->result);
-			picolFreeInterp(interp);
-			dag_free(&graph);
-			return 1;
+			result = 1;
+			goto cleanup;
 		}
 	}
 
 	/* Load user-specified libraries */
 	for (int j = 0; j < lib_count; j++) {
 		if (eval_file(interp, libs[j]) != 0) {
-			picolFreeInterp(interp);
-			dag_free(&graph);
-			return 1;
+			result = 1;
+			goto cleanup;
 		}
 	}
 
-	/* Evaluate Kilnfile(s) passed as arguments */
-	for (; i < argc; i++) {
-		if (eval_file(interp, argv[i]) != 0) {
-			picolFreeInterp(interp);
-			dag_free(&graph);
-			return 1;
+	/* Evaluate build description file(s) */
+	for (int j = 0; j < file_count; j++) {
+		if (eval_file(interp, files[j]) != 0) {
+			result = 1;
+			goto cleanup;
 		}
 	}
 
@@ -213,9 +300,37 @@ main(int argc, char **argv)
 			fprintf(stderr, " involving '%s'", graph.nodes[cycle_node]->name);
 
 		fprintf(stderr, "\n");
-		picolFreeInterp(interp);
-		dag_free(&graph);
-		return 1;
+		result = 1;
+		goto cleanup;
+	}
+
+	/*
+	 * Decide which targets to build. Explicit CLI targets win; otherwise
+	 * a Kilnfile-declared default is used. With neither, needed stays
+	 * NULL and the whole graph is built.
+	 */
+	if (target_count > 0) {
+		needed = xmalloc(sizeof(int) * graph.count);
+		memset(needed, 0, sizeof(int) * graph.count);
+
+		for (int t = 0; t < target_count; t++) {
+			if (select_target(&graph, targets[t], needed) != 0) {
+				result = 1;
+				goto cleanup;
+			}
+		}
+	} else {
+		const char *def = kiln_get_default();
+
+		if (def && def[0]) {
+			needed = xmalloc(sizeof(int) * graph.count);
+			memset(needed, 0, sizeof(int) * graph.count);
+
+			if (select_target_list(&graph, def, needed) != 0) {
+				result = 1;
+				goto cleanup;
+			}
+		}
 	}
 
 	/* Set up build config.
@@ -238,8 +353,6 @@ main(int argc, char **argv)
 	cfg.jobs = jobs;
 
 	/* Dispatch action or build */
-	int result = 0;
-
 	if (action) {
 		if (strcmp(action, "clean") == 0) {
 			result = build_clean(&graph, &cfg);
@@ -250,11 +363,15 @@ main(int argc, char **argv)
 			result = 1;
 		}
 	} else if (graph.order_count > 0) {
-		result = build_execute(&graph, &cfg);
+		result = build_execute(&graph, &cfg, needed);
 	} else {
 		printf("kiln: nothing to do\n");
 	}
 
+cleanup:
+	free(needed);
+	free(targets);
+	kiln_free_commands();
 	picolFreeInterp(interp);
 	dag_free(&graph);
 	return result;
