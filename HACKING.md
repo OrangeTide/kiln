@@ -140,6 +140,25 @@ and `$BuildDir` (set once `builddir` or `--builddir` is used).
 The `--builddir` command-line flag takes precedence over a `builddir`
 command in the Kilnfile.
 
+## Standard Library
+
+The standard library is written in Tcl in `lib/kiln.tcl` and embedded
+into the binary as a C string. `bin/embed.sh` regenerates the committed
+header `src/kiln_stdlib.h` from it:
+
+    sh bin/embed.sh    # after editing lib/kiln.tcl
+
+`kiln.c` includes that header and evaluates `kiln_stdlib_tcl` in the
+interpreter at startup, before user `--lib` files and Kilnfiles, unless
+`--no-stdlib` is given. The amalgamation inlines the header like any
+other local include. Both `lib/kiln.tcl` and `src/kiln_stdlib.h` are
+committed; regenerate and commit them together.
+
+Helpers must use only the commands kiln exposes today. In a helper that
+builds a rule body, escape `$out`, `$in`, and `$depfile` as `\$out` so
+they reach the rule unexpanded; a helper's own arguments (`$src` and so
+on) are substituted when the helper runs.
+
 ## Platform Abstraction
 
 Platform-specific code lives in `platform_unix.c` and

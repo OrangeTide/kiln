@@ -60,10 +60,12 @@ come first because later phases depend on them.
    that are no longer in the DAG, outputs missing on disk, and stale entries.
    This is the debugging aid the Skjegg ordering comments are crying out for.
 
-4. **Bundle the standard library.** `--no-stdlib` and the `kiln.tcl` loader
-   are documented but `lib/` is empty and the loader is a TODO. Ship an
-   embedded `kiln.tcl` with the common helpers the later phases introduce,
-   and make `--no-stdlib` meaningful.
+4. **Bundle the standard library. (done)** `lib/kiln.tcl` is embedded into
+   the binary by `bin/embed.sh` (generating the committed `src/kiln_stdlib.h`)
+   and evaluated at startup before Kilnfiles, unless `--no-stdlib` is given,
+   which now genuinely skips it. It ships starter helpers (`cc_object`,
+   `cp_rule`); the set is limited by the thin Tcl surface and will grow with
+   item 5.
 
 ## Phase 1: expressive build descriptions
 

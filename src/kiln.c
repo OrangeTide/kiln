@@ -16,6 +16,8 @@
 #include "execute.c"
 #include "commands.c"
 
+#include "kiln_stdlib.h"
+
 static char *
 read_file(const char *path)
 {
@@ -174,7 +176,13 @@ main(int argc, char **argv)
 
 	/* Load standard library (unless --no-stdlib) */
 	if (!no_stdlib) {
-		// TODO: load embedded kiln.tcl when available
+		if (picolEval(interp, kiln_stdlib_tcl) != PICOL_OK) {
+			fprintf(stderr, "kiln: standard library error: %s\n",
+			        interp->result);
+			picolFreeInterp(interp);
+			dag_free(&graph);
+			return 1;
+		}
 	}
 
 	/* Load user-specified libraries */

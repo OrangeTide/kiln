@@ -96,6 +96,24 @@ flag) and write outputs as plain paths. kiln prepends the prefix to
 rule outputs and depfiles automatically, and resolves inputs that name
 a prefixed build output.
 
+## Standard Library
+
+A small standard library (`lib/kiln.tcl`) is bundled into the binary and
+loaded before your Kilnfiles unless you pass `--no-stdlib`. It provides
+helper procs that cut rule boilerplate:
+
+```tcl
+# Compile one C source to an object with header-dependency tracking
+cc_object build/$Triplet/app.o app.c build/$Triplet/app.d "-Wall -O2"
+
+# Copy a file as a build step
+cp_rule build/$Triplet/config.txt config.in
+```
+
+The library is edited as `lib/kiln.tcl` and embedded with
+`sh bin/embed.sh`, which regenerates `src/kiln_stdlib.h`. The helper set
+will grow as kiln's Tcl surface does.
+
 ## How It Works
 
 1. **Parse** - evaluate Kilnfiles in a Tcl interpreter (Picol 2),
@@ -142,7 +160,7 @@ sh doc/gen-screenshot.sh
 | `--triplet T` | Set target triplet (skip `cc -dumpmachine`) |
 | `--builddir P` | Set build directory prefix for rule outputs |
 | `--lib F` | Load a Tcl library before Kilnfiles (repeatable) |
-| `--no-stdlib` | Skip the built-in standard library *(not yet bundled)* |
+| `--no-stdlib` | Skip the built-in standard library (`lib/kiln.tcl`) |
 | `-n`, `--dry-run` | Print commands without running them |
 | `-j N` | Run up to N commands in parallel (default: CPU count) |
 | `-h`, `--help` | Show usage |

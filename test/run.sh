@@ -519,6 +519,40 @@ check_contains "uses in-tree: tool rebuild cascades" "$OUT" "built 2 targets"
 check_contains "uses in-tree: output regenerated" "$(cat out.txt)" "TOOL2"
 
 # =========================================================================
+printf "=== Standard library (kiln.tcl) ===\n"
+# =========================================================================
+
+TS="$TMPDIR/stdlib"
+mkdir -p "$TS"
+cd "$TS"
+
+echo "payload" > src.txt
+
+cat > Kilnfile <<'EOF'
+cp_rule copy.txt src.txt
+EOF
+
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "stdlib cp_rule builds" "$OUT" "built 1 target"
+check "stdlib cp_rule output" "$(cat copy.txt)" "payload"
+
+# --no-stdlib must leave the helpers undefined.
+OUT=$("$KILN" --no-stdlib --triplet t Kilnfile 2>&1 || true)
+check_contains "no-stdlib disables helpers" "$OUT" "No such command"
+
+cat > o.c <<'EOF'
+int answer(void) { return 42; }
+EOF
+cat > Kilnfile <<'EOF'
+cc_object o.o o.c o.d "-O2"
+EOF
+
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "stdlib cc_object builds" "$OUT" "built 1 target"
+check_file_exists "stdlib cc_object output" "$TS/o.o"
+check_file_exists "stdlib cc_object depfile" "$TS/o.d"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

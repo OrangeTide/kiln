@@ -60,8 +60,6 @@ Skip loading the built-in standard library
 Combine with
 .B \-\-lib
 to substitute a custom standard library.
-The bundled standard library is not yet shipped, so this option
-currently has no effect.
 .TP
 .BR \-n ", " \-\-dry\-run
 Print commands that would be executed without running them.
@@ -200,6 +198,29 @@ The build directory prefix, set once
 or
 .B \-\-builddir
 is used.
+.SH STANDARD LIBRARY
+A small standard library is embedded in the binary and evaluated before
+any Kilnfile unless
+.B \-\-no\-stdlib
+is given.
+It defines helper procedures that reduce rule boilerplate.
+.TP
+.BI "cc_object " "obj src dep flags"
+Define a rule that compiles the C source
+.I src
+to the object file
+.IR obj ,
+writing a depfile to
+.I dep
+so header changes are tracked, and passing
+.I flags
+to the compiler.
+.TP
+.BI "cp_rule " "dst src"
+Define a rule that copies
+.I src
+to
+.IR dst .
 .SH STALENESS DETECTION
 kiln uses a two-level check for each input file:
 .IP 1. 4
