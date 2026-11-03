@@ -112,6 +112,15 @@ flag missing outputs, then walks the CDB with `cdb_iter_*` and reports
 any `cmd:<output>` key whose output is no longer a file node (its rule
 was removed).
 
+## Output Directories
+
+Before spawning a command, `build_execute` calls `ensure_output_dirs()`,
+which `kiln_mkdir_p`s the parent directory of each file output and of the
+depfile (via the `mkdir_for_file` helper). A rule may therefore write into
+a not-yet-existing subdirectory of the build directory, which is what lets
+`cc_objects` mirror a source tree. The top build directory is still
+created up front so the CDB can be written even when nothing is rebuilt.
+
 ## Terminal Output
 
 `term.c` / `term.h` provide color and progress output. Call `term_init()`

@@ -358,6 +358,53 @@ node_label(struct dag *g, struct dag_node *n)
 	return "(command)";
 }
 
+/*
+ * mkdir_for_file creates the parent directory of a path. A path with no
+ * directory part needs nothing and succeeds. Returns OK or ERR.
+ */
+static int
+mkdir_for_file(const char *path)
+{
+	const char *last_sep = NULL;
+
+	for (const char *p = path; *p; p++)
+		if (*p == '/') last_sep = p;
+
+	if (!last_sep) return OK;
+
+	char dir[4096];
+	size_t dlen = last_sep - path;
+
+	if (dlen >= sizeof(dir)) return OK;
+
+	memcpy(dir, path, dlen);
+	dir[dlen] = '\0';
+
+	return kiln_mkdir_p(dir);
+}
+
+/*
+ * ensure_output_dirs creates the parent directory of each file output of
+ * a command node, and of its depfile. A rule may then write into a
+ * subdirectory of the build directory without that directory existing
+ * first. Returns OK, or ERR if a directory could not be created.
+ */
+static int
+ensure_output_dirs(struct dag *g, struct dag_node *n)
+{
+	for (struct dag_edge *e = n->outputs; e; e = e->next) {
+		struct dag_node *out = g->nodes[e->node_id];
+
+		if (out->type != NODE_FILE) continue;
+
+		if (mkdir_for_file(out->name) != OK) return ERR;
+	}
+
+	if (n->depfile && mkdir_for_file(n->depfile) != OK) return ERR;
+
+	return OK;
+}
+
 // Check whether a command node needs to be rebuilt.
 // Sets *out_first_output and *out_cmd_hash for use by the caller.
 // When not dirty, carries forward the old CDB state into new_db.
@@ -679,6 +726,15 @@ build_execute(struct dag *g, struct build_config *cfg, const int *needed)
 				sched_complete(g, n, mark, &epoch, pending,
 				               ready, &ready_count, needed);
 				continue;
+			}
+
+			if (ensure_output_dirs(g, n) != OK) {
+				term_clear_progress();
+				fprintf(stderr,
+				        "%skiln: cannot create output directory for:%s %s\n",
+				        term_red(), term_reset(), n->command);
+				failed = 1;
+				break;
 			}
 
 			term_progress(cmd_index, total_cmds, n->command);

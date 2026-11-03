@@ -120,6 +120,11 @@ flag) and write outputs as plain paths. kiln prepends the prefix to
 rule outputs and depfiles automatically, and resolves inputs that name
 a prefixed build output.
 
+A rule may write into a subdirectory that does not exist yet. kiln
+creates the parent directory of each output and depfile before running
+the command, so a build can mirror a nested source tree without a
+`mkdir` step.
+
 ## Phony Targets
 
 A `phony` target runs a command but produces no file, for tasks like
@@ -167,7 +172,7 @@ cc_program app [glob *.c] "-Wall -O2"
 The helpers are:
 
 - `cc_program out sources flags` - compile each source and link into `out`
-- `cc_objects sources flags` - compile each source, returning the object list
+- `cc_objects sources flags` - compile each source into a mirrored object tree, returning the object list
 - `cc_object obj src dep flags` - compile one source with depfile tracking
 - `cp_rule dst src` - copy as a build step
 - `run name program opts` - build `program`, then launch it (see below)

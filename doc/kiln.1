@@ -198,6 +198,12 @@ variable.
 A
 .B \-\-builddir
 flag on the command line takes precedence over this command.
+.PP
+A rule output or depfile may name a subdirectory that does not exist yet.
+Before running a command,
+.B kiln
+creates the parent directory of each of its outputs and its depfile, so a
+build can mirror a nested source tree without a separate directory step.
 .SS Tcl Extensions
 .TP
 .BI "glob " "pattern ..."
@@ -316,6 +322,9 @@ list and link the resulting objects into
 .BI "cc_objects " "sources flags"
 Define a compile rule for each C source and return the list of object
 paths, for linking in a separate rule.
+Each object keeps the source's relative path with the extension changed,
+mirroring the source tree into the build directory rather than flattening
+names, so same-named sources in different directories do not collide.
 .TP
 .BI "cc_object " "obj src dep flags"
 Define a rule that compiles the C source

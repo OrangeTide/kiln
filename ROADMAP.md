@@ -101,9 +101,9 @@ and list filtering precisely because the base language is weak.
    writes with a pattern rule plus `$(call)` are now a short loop. The
    compiler is still hard-coded as `cc`; item 8 parameterizes it.
 
-   `cc_objects` flattens object names to the source base name, because kiln
-   only creates the top build directory, not nested output directories. A
-   build with a mirrored source tree needs that; see item 18a.
+   `cc_objects` mirrors the source tree into the build directory (kiln
+   creates each output's directory as needed; see item 18a), so two sources
+   with the same base name in different directories do not collide.
 
 8. **Toolchain configuration. (done)** A `getenv name ?default?` command
    reads environment variables with fallbacks, so the wall of `?=` becomes
@@ -195,11 +195,14 @@ which rules out `check`, `run`, and `install` as first-class targets.
     weakening change detection. Use the file index from
     `GetFileInformationByHandle` or fall back to content hashing.
 
-18a. **Create output directories.** `build_execute` only creates the top
-    build directory, so a rule whose output is in a subdirectory of it
-    fails unless that directory already exists. Before running a command,
-    `mkdir -p` the directory of each of its outputs. This also lets
-    `cc_objects` mirror a source tree instead of flattening object names.
+18a. **Create output directories. (done)** Before running a command,
+    `build_execute` now creates the parent directory of each of its file
+    outputs and of its depfile (via `ensure_output_dirs`/`kiln_mkdir_p`), so
+    a rule may write into a subdirectory of the build directory that does
+    not yet exist. With that in place, `cc_objects` mirrors the source tree
+    (`src/a/foo.c` -> `src/a/foo.o`) instead of flattening object names,
+    which also stops same-named sources in different directories from
+    colliding.
 
 19. **Diagnostics.** Improve error context: report the full cycle path, not a
     single node, and attach `file:line` to more failures.

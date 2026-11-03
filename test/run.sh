@@ -898,6 +898,66 @@ check_contains "test: failing exit fails build" "$OUT" "bad failed with exit cod
 check_contains "test: failure reports command" "$OUT" "./badprog"
 
 # =========================================================================
+printf "=== Output directories ===\n"
+# =========================================================================
+
+TDIR="$TMPDIR/outdirs"
+mkdir -p "$TDIR"
+cd "$TDIR"
+
+# A rule whose output lives in a not-yet-existing subdirectory builds.
+cat > Kilnfile <<'EOF'
+rule a/b/c.txt {
+    command {sh -c "echo hi > $out"}
+}
+EOF
+OUT=$("$KILN" --triplet t a/b/c.txt 2>&1)
+check_contains "outdir: builds into new subdir" "$OUT" "built 1 target"
+check_file_exists "outdir: nested output created" "$TDIR/a/b/c.txt"
+
+# A rule whose depfile has its own subdirectory also works.
+rm -rf obj dep
+cat > foo.c <<'EOF'
+int main(void){return 0;}
+EOF
+cat > Kilnfile <<'EOF'
+rule obj/foo.o {
+    inputs foo.c
+    depfile dep/foo.d
+    command {cc -c -o $out $in -MMD -MF $depfile}
+}
+EOF
+OUT=$("$KILN" --triplet t obj/foo.o 2>&1)
+check_contains "outdir: builds with depfile subdir" "$OUT" "built 1 target"
+check_file_exists "outdir: output dir created" "$TDIR/obj/foo.o"
+check_file_exists "outdir: depfile dir created" "$TDIR/dep/foo.d"
+
+# cc_objects mirrors the source tree under the build directory instead of
+# flattening object names, so same-named sources do not collide.
+TMIR="$TMPDIR/mirror"
+mkdir -p "$TMIR/src/math" "$TMIR/src/io"
+cd "$TMIR"
+cat > src/math/op.c <<'EOF'
+int op(int a,int b){return a+b;}
+EOF
+cat > src/io/op.c <<'EOF'
+void ioop(void){}
+EOF
+cat > main.c <<'EOF'
+int op(int,int); void ioop(void);
+int main(void){ioop();return op(2,3);}
+EOF
+cat > Kilnfile <<'EOF'
+builddir build/$Triplet
+cc_program app [list main.c src/math/op.c src/io/op.c] "-O2"
+EOF
+OUT=$("$KILN" --triplet t app 2>&1)
+check_contains "mirror: program links" "$OUT" "built 4 targets"
+check_file_exists "mirror: math object at mirrored path" "$TMIR/build/t/src/math/op.o"
+check_file_exists "mirror: io object at mirrored path" "$TMIR/build/t/src/io/op.o"
+check_file_exists "mirror: program built" "$TMIR/build/t/app"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

@@ -29,15 +29,18 @@ proc cc_object {obj src dep flags} {
 
 # cc_objects sources flags
 #   Define a compile rule for each C source in the list and return the
-#   list of object paths. The object and depfile names are the source
-#   base name with .o and .d; combine with the builddir command to place
-#   them under a build directory. This is the one-rule-per-source pattern
-#   as a single call:
+#   list of object paths. Each object and depfile keeps the source's own
+#   relative path with the extension changed to .o and .d, so a source
+#   tree is mirrored rather than flattened (src/a/foo.c -> src/a/foo.o);
+#   this keeps two sources with the same base name from colliding. Combine
+#   with the builddir command to place the tree under a build directory;
+#   kiln creates each output's directory as needed. One rule per source in
+#   a single call:
 #       set objs [cc_objects [glob *.c] "-Wall -O2"]
 proc cc_objects {sources flags} {
     set objs {}
     foreach src $sources {
-        set base [file rootname [file tail $src]]
+        set base [file rootname $src]
         cc_object $base.o $src $base.d $flags
         lappend objs $base.o
     }
