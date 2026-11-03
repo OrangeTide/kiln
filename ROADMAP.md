@@ -76,13 +76,13 @@ plus `glob file lindex llength`. That is too thin to express a real build
 without repetition. The Skjegg Makefile leans on `$(call)`, `$(foreach)`,
 and list filtering precisely because the base language is weak.
 
-5. **Grow the Tcl surface.** Add the commands a description actually needs:
-   `foreach`, `for`, `incr`, `append`, `lappend`, `list`, `lrange`,
-   `lsort`, `string` (at least `match`, `map`, `range`, `first`, `last`),
-   `switch`, `catch`, `eval`, and `format`. Document the supported set so
-   authors are not guessing.
-   - Done when: a pattern-rule-style description over a list of targets reads
-     as a `foreach` loop with no external tricks.
+5. **Grow the Tcl surface. (partly done)** Added as extensions in
+   `picol_ext.c`: `list`, `lappend`, `append`, `incr`, `foreach`, `for`,
+   `catch`, `eval`, and `string` (`length`, `index`, `range`, `match`, `map`,
+   `first`, `last`, `equal`, `tolower`, `toupper`). A pattern-rule-style
+   description over a list of sources now reads as a `foreach` loop with no
+   external tricks. Still missing and worth adding as needs arise: `lrange`,
+   `lsort`, `switch`, `format`, and multi-variable `foreach`.
 
 6. **Config-time `exec`.** Expose a command that runs a program while the
    Kilnfile is being evaluated and returns its output, the counterpart to

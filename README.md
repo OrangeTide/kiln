@@ -74,8 +74,23 @@ rule build/$Triplet/hello {
 
 The `rule` command declares outputs, inputs, an optional depfile, and a
 shell command. Variables like `$out`, `$in`, and `$depfile` are set
-automatically. Since the body is Tcl, you can use `glob`, `file`, `if`,
-`while`, `proc`, and the other built-in commands.
+automatically. Since the body is Tcl, you have control flow (`if`,
+`while`, `for`, `foreach`), list commands (`list`, `lappend`, `lindex`,
+`llength`), `string`, `proc`, `catch`, `glob`, `file`, and more. A rule
+per source is just a loop:
+
+```tcl
+set objs {}
+foreach s [glob *.c] {
+    set o build/$Triplet/[file rootname $s].o
+    lappend objs $o
+    cc_object $o $s $o.d "-Wall -O2"
+}
+rule build/$Triplet/app {
+    inputs $objs
+    command {cc -o $out $in}
+}
+```
 
 Use `uses` to declare a program a rule runs, such as a compiler or a
 generator script, when it is not already an input. kiln tracks it for

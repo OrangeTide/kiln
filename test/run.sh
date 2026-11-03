@@ -610,6 +610,70 @@ check_contains "status: stale entry header" "$OUT" "stale entries"
 check_contains "status: stale entry name" "$OUT" "b.o"
 
 # =========================================================================
+printf "=== Tcl surface (foreach, list, string, ...) ===\n"
+# =========================================================================
+
+TX="$TMPDIR/tclx"
+mkdir -p "$TX"
+
+cat > "$TX/t.tcl" <<'TCLEOF'
+set xs [list a b "c d"]
+puts [llength $xs]
+set acc ""
+lappend acc one
+lappend acc two
+puts $acc
+set n 0
+foreach x $xs { incr n }
+puts $n
+set sum 0
+for {set k 1} {$k <= 3} {incr k} { incr sum $k }
+puts $sum
+puts [string range hello 1 3]
+puts [string match f*.c foo.c]
+puts [string map {a X} banana]
+puts [catch {nosuchcmd}]
+TCLEOF
+
+OUT=$("$KILN" --triplet t "$TX/t.tcl" 2>&1)
+check "list/llength" "$(echo "$OUT" | sed -n 1p)" "3"
+check "lappend" "$(echo "$OUT" | sed -n 2p)" "one two"
+check "foreach count" "$(echo "$OUT" | sed -n 3p)" "3"
+check "for sum" "$(echo "$OUT" | sed -n 4p)" "6"
+check "string range" "$(echo "$OUT" | sed -n 5p)" "ell"
+check "string match" "$(echo "$OUT" | sed -n 6p)" "1"
+check "string map" "$(echo "$OUT" | sed -n 7p)" "bXnXnX"
+check "catch error" "$(echo "$OUT" | sed -n 8p)" "1"
+
+# A pattern-rule-style build: generate a rule per source with foreach.
+TXR="$TMPDIR/tclrules"
+mkdir -p "$TXR"
+cd "$TXR"
+
+echo a > a.c
+echo b > b.c
+
+cat > Kilnfile <<'EOF'
+set objs ""
+foreach s "a b" {
+    lappend objs $s.o
+    rule $s.o {
+        inputs $s.c
+        command {cp $in $out}
+    }
+}
+rule all.txt {
+    inputs $objs
+    command {cat $in > $out}
+}
+EOF
+
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "foreach-generated rules build" "$OUT" "built 3 targets"
+check_file_exists "foreach rule output a.o" "$TXR/a.o"
+check_file_exists "foreach collected link" "$TXR/all.txt"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

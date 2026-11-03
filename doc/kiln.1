@@ -173,6 +173,30 @@ from a Tcl list.
 .TP
 .BI "llength " list
 Return the number of elements in a Tcl list.
+.TP
+Additional commands
+Standard Tcl commands are also provided and behave as in Tcl:
+.BR list ,
+.BR lappend ,
+.BR append ,
+.BR incr ,
+.BR foreach ,
+.BR for ,
+.BR catch ,
+.BR eval ,
+and
+.B string
+(subcommands
+.BR length ,
+.BR index ,
+.BR range ,
+.BR match ,
+.BR map ,
+.BR first ,
+.BR last ,
+.BR equal ,
+.BR tolower ,
+.BR toupper ).
 .SS Predefined Variables
 .TP
 .B $Triplet

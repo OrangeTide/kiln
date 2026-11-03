@@ -43,7 +43,9 @@ Static Tcl command handlers use the `cmd_` prefix:
 - `cmd_rule_inputs`, `cmd_rule_uses`, `cmd_rule_command`,
   `cmd_rule_depfile` (commands.c; registered only while a `rule` body is
   evaluated)
-- `cmd_lindex`, `cmd_llength`, `cmd_glob`, `cmd_file` (picol_ext.c)
+- `cmd_glob`, `cmd_file`, `cmd_lindex`, `cmd_llength`, `cmd_list`,
+  `cmd_lappend`, `cmd_append`, `cmd_incr`, `cmd_foreach`, `cmd_for`,
+  `cmd_catch`, `cmd_eval`, `cmd_string` (picol_ext.c)
 
 Upstream picol functions keep their `picol` prefix - do not rename them.
 

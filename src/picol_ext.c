@@ -4,6 +4,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 #define PICOL_NO_MAIN
 #include "picol.c"
@@ -285,6 +286,487 @@ cmd_file(struct picolInterp *i, int argc, char **argv,
 }
 
 /***************************************************************************
+ * Growable string buffer and list-element helpers
+ **************************************************************************/
+
+struct sbuf {
+	char *data;
+	size_t len;
+	size_t cap;
+};
+
+static void
+sbuf_init(struct sbuf *b)
+{
+	b->data = NULL;
+	b->len = 0;
+	b->cap = 0;
+}
+
+static void
+sbuf_putc(struct sbuf *b, char c)
+{
+	if (b->len + 1 > b->cap) {
+		b->cap = b->cap ? b->cap * 2 : 64;
+		b->data = xrealloc(b->data, b->cap);
+	}
+
+	b->data[b->len++] = c;
+}
+
+static void
+sbuf_puts(struct sbuf *b, const char *s)
+{
+	while (*s) sbuf_putc(b, *s++);
+}
+
+/* NUL-terminate and return the owned buffer; caller frees. */
+static char *
+sbuf_done(struct sbuf *b)
+{
+	sbuf_putc(b, '\0');
+	return b->data;
+}
+
+/* Append elem as one Tcl list element, brace-quoting it when it is empty
+ * or contains whitespace. */
+static void
+sbuf_put_element(struct sbuf *b, const char *elem)
+{
+	int quote = (elem[0] == '\0');
+
+	for (const char *p = elem; *p && !quote; p++)
+		if (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
+			quote = 1;
+
+	if (quote) {
+		sbuf_putc(b, '{');
+		sbuf_puts(b, elem);
+		sbuf_putc(b, '}');
+	} else {
+		sbuf_puts(b, elem);
+	}
+}
+
+/* Glob matcher for "string match": supports *, ?, and [set]. */
+static int
+glob_match(const char *pat, const char *str)
+{
+	while (*pat) {
+		if (*pat == '*') {
+			while (*pat == '*') pat++;
+
+			if (!*pat) return 1;
+
+			for (; *str; str++)
+				if (glob_match(pat, str)) return 1;
+
+			return 0;
+		} else if (*pat == '?') {
+			if (!*str) return 0;
+
+			pat++;
+			str++;
+		} else if (*pat == '[') {
+			const char *p = pat + 1;
+			int neg = 0, match = 0;
+
+			if (*p == '!') { neg = 1; p++; }
+
+			while (*p && *p != ']') {
+				if (p[1] == '-' && p[2] && p[2] != ']') {
+					if ((unsigned char)*str >= (unsigned char)p[0] &&
+					    (unsigned char)*str <= (unsigned char)p[2])
+						match = 1;
+
+					p += 3;
+				} else {
+					if (*str == *p) match = 1;
+
+					p++;
+				}
+			}
+
+			if (*p == ']') p++;
+
+			if (!*str || match == neg) return 0;
+
+			pat = p;
+			str++;
+		} else {
+			if (*str != *pat) return 0;
+
+			pat++;
+			str++;
+		}
+	}
+
+	return *str == '\0';
+}
+
+/***************************************************************************
+ * List commands: list, lappend
+ **************************************************************************/
+
+static int
+cmd_list(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+
+	struct sbuf b;
+	sbuf_init(&b);
+
+	for (int j = 1; j < argc; j++) {
+		if (j > 1) sbuf_putc(&b, ' ');
+
+		sbuf_put_element(&b, argv[j]);
+	}
+
+	char *s = sbuf_done(&b);
+	picolSetResult(i, s);
+	free(s);
+	return PICOL_OK;
+}
+
+static int
+cmd_lappend(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc < 2) return picolArityErr(i, argv[0]);
+
+	struct picolVar *v = picolGetVar(i, argv[1]);
+	struct sbuf b;
+	sbuf_init(&b);
+
+	if (v && v->val[0]) sbuf_puts(&b, v->val);
+
+	for (int j = 2; j < argc; j++) {
+		if (b.len > 0) sbuf_putc(&b, ' ');
+
+		sbuf_put_element(&b, argv[j]);
+	}
+
+	char *s = sbuf_done(&b);
+	picolSetVar(i, argv[1], s);
+	picolSetResult(i, s);
+	free(s);
+	return PICOL_OK;
+}
+
+/***************************************************************************
+ * String accumulation: append, incr
+ **************************************************************************/
+
+static int
+cmd_append(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc < 2) return picolArityErr(i, argv[0]);
+
+	struct picolVar *v = picolGetVar(i, argv[1]);
+	struct sbuf b;
+	sbuf_init(&b);
+
+	if (v && v->val[0]) sbuf_puts(&b, v->val);
+
+	for (int j = 2; j < argc; j++)
+		sbuf_puts(&b, argv[j]);
+
+	char *s = sbuf_done(&b);
+	picolSetVar(i, argv[1], s);
+	picolSetResult(i, s);
+	free(s);
+	return PICOL_OK;
+}
+
+static int
+cmd_incr(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc < 2 || argc > 3) return picolArityErr(i, argv[0]);
+
+	struct picolVar *v = picolGetVar(i, argv[1]);
+	long cur = v ? atol(v->val) : 0;
+	long amt = (argc == 3) ? atol(argv[2]) : 1;
+	cur += amt;
+
+	char buf[32];
+	snprintf(buf, sizeof(buf), "%ld", cur);
+	picolSetVar(i, argv[1], buf);
+	picolSetResult(i, buf);
+	return PICOL_OK;
+}
+
+/***************************************************************************
+ * Control flow: foreach, for, catch, eval
+ **************************************************************************/
+
+static int
+cmd_foreach(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc != 4) return picolArityErr(i, argv[0]);
+
+	const char *p = argv[2];
+	const char *start;
+	int len;
+
+	while (list_next(&p, &start, &len)) {
+		char *elem = xmalloc(len + 1);
+		memcpy(elem, start, len);
+		elem[len] = '\0';
+		picolSetVar(i, argv[1], elem);
+		free(elem);
+
+		int rc = picolEval(i, argv[3]);
+
+		if (rc == PICOL_OK || rc == PICOL_CONTINUE) continue;
+
+		if (rc == PICOL_BREAK) break;
+
+		return rc; /* ERR or RETURN propagate */
+	}
+
+	picolSetResult(i, "");
+	return PICOL_OK;
+}
+
+static int
+cmd_for(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc != 5) return picolArityErr(i, argv[0]);
+
+	int rc = picolEval(i, argv[1]); /* start */
+
+	if (rc != PICOL_OK) return rc;
+
+	while (1) {
+		rc = picolExprExpansion(i, argv[2]); /* test */
+
+		if (rc != PICOL_OK) return rc;
+
+		if (!strtod(i->result, NULL)) break;
+
+		rc = picolEval(i, argv[4]); /* body */
+
+		if (rc == PICOL_BREAK) break;
+
+		if (rc != PICOL_OK && rc != PICOL_CONTINUE) return rc;
+
+		rc = picolEval(i, argv[3]); /* next */
+
+		if (rc != PICOL_OK) return rc;
+	}
+
+	picolSetResult(i, "");
+	return PICOL_OK;
+}
+
+static int
+cmd_catch(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc < 2 || argc > 3) return picolArityErr(i, argv[0]);
+
+	int rc = picolEval(i, argv[1]);
+
+	if (argc == 3) picolSetVar(i, argv[2], i->result);
+
+	char buf[16];
+	snprintf(buf, sizeof(buf), "%d", rc);
+	picolSetResult(i, buf);
+	return PICOL_OK;
+}
+
+static int
+cmd_eval(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc < 2) return picolArityErr(i, argv[0]);
+
+	struct sbuf b;
+	sbuf_init(&b);
+
+	for (int j = 1; j < argc; j++) {
+		if (j > 1) sbuf_putc(&b, ' ');
+
+		sbuf_puts(&b, argv[j]);
+	}
+
+	char *s = sbuf_done(&b);
+	int rc = picolEval(i, s);
+	free(s);
+	return rc;
+}
+
+/***************************************************************************
+ * string subcommand ...
+ *
+ * Subcommands: length, index, range, match, map, first, last, equal,
+ * tolower, toupper.
+ **************************************************************************/
+
+static int
+cmd_string(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc < 3) return picolArityErr(i, argv[0]);
+
+	const char *op = argv[1];
+
+	if (strcmp(op, "length") == 0) {
+		char buf[16];
+		snprintf(buf, sizeof(buf), "%d", (int)strlen(argv[2]));
+		picolSetResult(i, buf);
+		return PICOL_OK;
+	}
+
+	if (strcmp(op, "tolower") == 0 || strcmp(op, "toupper") == 0) {
+		int up = (strcmp(op, "toupper") == 0);
+		struct sbuf b;
+		sbuf_init(&b);
+
+		for (const char *p = argv[2]; *p; p++)
+			sbuf_putc(&b, (char)(up ? toupper((unsigned char)*p)
+			                        : tolower((unsigned char)*p)));
+
+		char *r = sbuf_done(&b);
+		picolSetResult(i, r);
+		free(r);
+		return PICOL_OK;
+	}
+
+	if (strcmp(op, "index") == 0) {
+		if (argc != 4) return picolArityErr(i, argv[0]);
+
+		const char *s = argv[2];
+		int slen = (int)strlen(s);
+		int idx = (strcmp(argv[3], "end") == 0) ? slen - 1 : atoi(argv[3]);
+		char ch[2] = { 0, 0 };
+
+		if (idx >= 0 && idx < slen) ch[0] = s[idx];
+
+		picolSetResult(i, ch);
+		return PICOL_OK;
+	}
+
+	if (strcmp(op, "range") == 0) {
+		if (argc != 5) return picolArityErr(i, argv[0]);
+
+		const char *s = argv[2];
+		int slen = (int)strlen(s);
+		int a = (strcmp(argv[3], "end") == 0) ? slen - 1 : atoi(argv[3]);
+		int b = (strcmp(argv[4], "end") == 0) ? slen - 1 : atoi(argv[4]);
+
+		if (a < 0) a = 0;
+
+		if (b >= slen) b = slen - 1;
+
+		if (slen == 0 || a > b) {
+			picolSetResult(i, "");
+		} else {
+			int n = b - a + 1;
+			char *r = xmalloc(n + 1);
+			memcpy(r, s + a, n);
+			r[n] = '\0';
+			picolSetResult(i, r);
+			free(r);
+		}
+
+		return PICOL_OK;
+	}
+
+	if (strcmp(op, "match") == 0) {
+		if (argc != 4) return picolArityErr(i, argv[0]);
+
+		picolSetResult(i, glob_match(argv[2], argv[3]) ? "1" : "0");
+		return PICOL_OK;
+	}
+
+	if (strcmp(op, "equal") == 0) {
+		if (argc != 4) return picolArityErr(i, argv[0]);
+
+		picolSetResult(i, strcmp(argv[2], argv[3]) == 0 ? "1" : "0");
+		return PICOL_OK;
+	}
+
+	if (strcmp(op, "first") == 0 || strcmp(op, "last") == 0) {
+		if (argc != 4) return picolArityErr(i, argv[0]);
+
+		const char *needle = argv[2];
+		const char *hay = argv[3];
+		int found = -1;
+
+		if (*needle) {
+			if (strcmp(op, "first") == 0) {
+				const char *f = strstr(hay, needle);
+
+				if (f) found = (int)(f - hay);
+			} else {
+				const char *f = hay, *prev = NULL;
+
+				while ((f = strstr(f, needle))) {
+					prev = f;
+					f++;
+				}
+
+				if (prev) found = (int)(prev - hay);
+			}
+		}
+
+		char buf[16];
+		snprintf(buf, sizeof(buf), "%d", found);
+		picolSetResult(i, buf);
+		return PICOL_OK;
+	}
+
+	if (strcmp(op, "map") == 0) {
+		if (argc != 4) return picolArityErr(i, argv[0]);
+
+		const char *s = argv[3];
+		int slen = (int)strlen(s);
+		int pos = 0;
+		struct sbuf out;
+		sbuf_init(&out);
+
+		while (pos < slen) {
+			const char *p = argv[2];
+			const char *kstart, *vstart;
+			int klen, vlen, matched = 0;
+
+			while (list_next(&p, &kstart, &klen)) {
+				if (!list_next(&p, &vstart, &vlen)) break;
+
+				if (klen > 0 && pos + klen <= slen &&
+				    memcmp(s + pos, kstart, klen) == 0) {
+					for (int k = 0; k < vlen; k++)
+						sbuf_putc(&out, vstart[k]);
+
+					pos += klen;
+					matched = 1;
+					break;
+				}
+			}
+
+			if (!matched) sbuf_putc(&out, s[pos++]);
+		}
+
+		char *r = sbuf_done(&out);
+		picolSetResult(i, r);
+		free(r);
+		return PICOL_OK;
+	}
+
+	char buf[256];
+	snprintf(buf, sizeof(buf), "%s:%d: string: unknown subcommand '%s'",
+	         i->current_file ? i->current_file : "<eval>",
+	         i->current_line, op);
+	picolSetResult(i, buf);
+	return PICOL_ERR;
+}
+
+/***************************************************************************
  * Register all extension commands
  **************************************************************************/
 void
@@ -294,4 +776,13 @@ kiln_register_ext_commands(struct picolInterp *i)
 	picolRegisterCommand(i, "file", cmd_file);
 	picolRegisterCommand(i, "lindex", cmd_lindex);
 	picolRegisterCommand(i, "llength", cmd_llength);
+	picolRegisterCommand(i, "list", cmd_list);
+	picolRegisterCommand(i, "lappend", cmd_lappend);
+	picolRegisterCommand(i, "append", cmd_append);
+	picolRegisterCommand(i, "incr", cmd_incr);
+	picolRegisterCommand(i, "foreach", cmd_foreach);
+	picolRegisterCommand(i, "for", cmd_for);
+	picolRegisterCommand(i, "catch", cmd_catch);
+	picolRegisterCommand(i, "eval", cmd_eval);
+	picolRegisterCommand(i, "string", cmd_string);
 }
