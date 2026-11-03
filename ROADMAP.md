@@ -179,10 +179,14 @@ which rules out `check`, `run`, and `install` as first-class targets.
     consumers whenever a producer does run this build, so a forced generator
     was deliberately avoided.)
 
-14. **Multiple targets in one run.** Allow building several triplets or
-    architectures in a single invocation with per-target toolchains, rather
-    than one `--triplet` per run. The reference build produces m68k, RISC-V,
-    arm64, and x86-64 artifacts together.
+14. **Multiple targets in one run. (done)** `--triplet` is repeatable. The
+    command line is parsed once into a `struct kiln_options`, and `build_one`
+    runs the whole evaluate-and-build pipeline per triplet in its own
+    interpreter and DAG, so `$Triplet` (and a `$Triplet`-derived toolchain
+    and build directory) differ per build with no state leaking between them.
+    A failure in one triplet does not stop the others; kiln exits nonzero if
+    any failed. So one invocation produces the m68k, RISC-V, arm64, and
+    x86-64 trees the reference build needs, each with its own toolchain.
 
 ## Phase 4: distribution and lifecycle
 

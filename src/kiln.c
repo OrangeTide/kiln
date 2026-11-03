@@ -153,7 +153,8 @@ usage(void)
 	        "Options:\n"
 	        "  -f, --file <file>    Read build description (default: Kilnfile;\n"
 	        "                       repeatable)\n"
-	        "  --triplet <triplet>  Set target triplet (skip cc -dumpmachine)\n"
+	        "  --triplet <triplet>  Set target triplet (repeatable; skip\n"
+	        "                       cc -dumpmachine)\n"
 	        "  --variant <name>     Set build variant (default: release)\n"
 	        "  --builddir <path>    Set build directory prefix for rule outputs\n"
 	        "  -a, --action <name>  Run a built-in action (clean, status)\n"
@@ -164,142 +165,92 @@ usage(void)
 	        "  -h, --help           Show this help\n");
 }
 
-int
-main(int argc, char **argv)
+/*
+ * kiln_options holds everything parsed from the command line that is the
+ * same across triplets. Each triplet is built with its own interpreter and
+ * DAG by build_one.
+ */
+struct kiln_options {
+	const char *variant;
+	const char *builddir;    /* NULL unless --builddir was given */
+	const char *action;      /* NULL unless -a was given */
+	const char **libs;
+	int lib_count;
+	const char **files;
+	int file_count;
+	const char **targets;
+	int target_count;
+	int no_stdlib;
+	int dry_run;
+	int jobs;
+};
+
+/*
+ * build_one evaluates the build description for a single triplet in a fresh
+ * interpreter and DAG, then runs the requested action or build. A fresh
+ * interpreter per triplet resets $Triplet, $CC, and the rest, so a
+ * per-target toolchain follows from re-reading the Kilnfile. Returns 0 on
+ * success, 1 on failure.
+ */
+static int
+build_one(const char *triplet, const struct kiln_options *o)
 {
 	struct picolInterp *interp = picolInitInterp();
 	picolRegisterCoreCommands(interp);
 	kiln_register_ext_commands(interp);
-
-	term_init();
 
 	struct dag graph;
 	dag_init(&graph);
 	kiln_set_dag(&graph);
 	kiln_register_commands(interp);
 
-	/* Parse command-line arguments */
-	const char *triplet = NULL;
-	const char *variant = "release";
-	const char *builddir = NULL;
-	const char *action = NULL;
-	const char *libs[MAX_LIBS];
-	int lib_count = 0;
-	const char *files[MAX_LIBS];
-	int file_count = 0;
-	const char **targets = xmalloc(sizeof(char *) * (argc > 0 ? argc : 1));
-	int target_count = 0;
-	int no_stdlib = 0;
-	int dry_run = 0;
-	int jobs = 0;
 	int result = 0;
 	int *needed = NULL;
 
-	for (int i = 1; i < argc; i++) {
-		if (strcmp(argv[i], "--triplet") == 0 && i + 1 < argc) {
-			triplet = argv[++i];
-		} else if (strcmp(argv[i], "--variant") == 0 && i + 1 < argc) {
-			variant = argv[++i];
-		} else if (strcmp(argv[i], "--builddir") == 0 && i + 1 < argc) {
-			builddir = argv[++i];
-		} else if ((strcmp(argv[i], "-f") == 0 ||
-		            strcmp(argv[i], "--file") == 0) && i + 1 < argc) {
-			if (file_count >= MAX_LIBS) {
-				fprintf(stderr, "kiln: too many -f arguments\n");
-				result = 1;
-				goto cleanup;
-			}
-			files[file_count++] = argv[++i];
-		} else if ((strcmp(argv[i], "-a") == 0 ||
-		            strcmp(argv[i], "--action") == 0) && i + 1 < argc) {
-			action = argv[++i];
-		} else if (strcmp(argv[i], "--lib") == 0 && i + 1 < argc) {
-			if (lib_count >= MAX_LIBS) {
-				fprintf(stderr, "kiln: too many --lib arguments\n");
-				result = 1;
-				goto cleanup;
-			}
-			libs[lib_count++] = argv[++i];
-		} else if (strcmp(argv[i], "--no-stdlib") == 0) {
-			no_stdlib = 1;
-		} else if (strcmp(argv[i], "-n") == 0 ||
-		           strcmp(argv[i], "--dry-run") == 0) {
-			dry_run = 1;
-		} else if (strcmp(argv[i], "-j") == 0 && i + 1 < argc) {
-			jobs = atoi(argv[++i]);
-		} else if (strcmp(argv[i], "-h") == 0 ||
-		           strcmp(argv[i], "--help") == 0) {
-			usage();
-			goto cleanup;
-		} else if (argv[i][0] == '-') {
-			fprintf(stderr, "kiln: unknown option '%s'\n", argv[i]);
-			usage();
-			result = 1;
-			goto cleanup;
-		} else {
-			targets[target_count++] = argv[i];
-		}
-	}
-
-	/* Default to a single "Kilnfile" when no -f was given */
-	if (file_count == 0)
-		files[file_count++] = "Kilnfile";
-
-	/* Detect triplet */
-	char triplet_buf[256];
-
-	if (!triplet) {
-		if (kiln_run_capture("cc -dumpmachine", triplet_buf, sizeof(triplet_buf)) != OK) {
-			fprintf(stderr, "kiln: cc -dumpmachine failed. "
-			        "Use --triplet to specify the target triplet.\n");
-			result = 1;
-			goto cleanup;
-		}
-
-		triplet = triplet_buf;
-	}
-
-	if (jobs <= 0) jobs = kiln_cpu_count();
+	/* Reset the build-directory prefix for this triplet: honor an explicit
+	 * --builddir, otherwise clear any value a previous triplet's Kilnfile
+	 * set. */
+	if (o->builddir)
+		kiln_set_builddir_cli(o->builddir);
+	else
+		kiln_set_builddir(NULL);
 
 	/* Export settings as Tcl variables */
 	picolSetVar(interp, "Triplet", (char *)triplet);
-	picolSetVar(interp, "Variant", (char *)variant);
+	picolSetVar(interp, "Variant", (char *)o->variant);
 	{
 		char buf[32];
-		snprintf(buf, sizeof(buf), "%d", jobs);
+		snprintf(buf, sizeof(buf), "%d", o->jobs);
 		picolSetVar(interp, "Jobs", buf);
 	}
-	picolSetVar(interp, "DryRun", dry_run ? "1" : "0");
+	picolSetVar(interp, "DryRun", o->dry_run ? "1" : "0");
 
-	/* Set builddir from CLI flag (overrides any Kilnfile builddir) */
-	if (builddir) {
-		kiln_set_builddir_cli(builddir);
-		picolSetVar(interp, "BuildDir", (char *)builddir);
-	}
+	if (o->builddir)
+		picolSetVar(interp, "BuildDir", (char *)o->builddir);
 
 	/* Load standard library (unless --no-stdlib) */
-	if (!no_stdlib) {
+	if (!o->no_stdlib) {
 		if (picolEval(interp, kiln_stdlib_tcl) != PICOL_OK) {
 			fprintf(stderr, "kiln: standard library error: %s\n",
 			        interp->result);
 			result = 1;
-			goto cleanup;
+			goto done;
 		}
 	}
 
 	/* Load user-specified libraries */
-	for (int j = 0; j < lib_count; j++) {
-		if (eval_file(interp, libs[j]) != 0) {
+	for (int j = 0; j < o->lib_count; j++) {
+		if (eval_file(interp, o->libs[j]) != 0) {
 			result = 1;
-			goto cleanup;
+			goto done;
 		}
 	}
 
 	/* Evaluate build description file(s) */
-	for (int j = 0; j < file_count; j++) {
-		if (eval_file(interp, files[j]) != 0) {
+	for (int j = 0; j < o->file_count; j++) {
+		if (eval_file(interp, o->files[j]) != 0) {
 			result = 1;
-			goto cleanup;
+			goto done;
 		}
 	}
 
@@ -314,7 +265,7 @@ main(int argc, char **argv)
 
 		fprintf(stderr, "\n");
 		result = 1;
-		goto cleanup;
+		goto done;
 	}
 
 	/*
@@ -322,14 +273,14 @@ main(int argc, char **argv)
 	 * a Kilnfile-declared default is used. With neither, needed stays
 	 * NULL and the whole graph is built.
 	 */
-	if (target_count > 0) {
+	if (o->target_count > 0) {
 		needed = xmalloc(sizeof(int) * graph.count);
 		memset(needed, 0, sizeof(int) * graph.count);
 
-		for (int t = 0; t < target_count; t++) {
-			if (select_target(&graph, targets[t], needed) != 0) {
+		for (int t = 0; t < o->target_count; t++) {
+			if (select_target(&graph, o->targets[t], needed) != 0) {
 				result = 1;
-				goto cleanup;
+				goto done;
 			}
 		}
 	} else {
@@ -341,7 +292,7 @@ main(int argc, char **argv)
 
 			if (select_target_list(&graph, def, needed) != 0) {
 				result = 1;
-				goto cleanup;
+				goto done;
 			}
 		}
 	}
@@ -362,17 +313,17 @@ main(int argc, char **argv)
 	struct build_config cfg;
 	cfg.build_dir = build_dir;
 	cfg.cdb_path = cdb_path;
-	cfg.dry_run = dry_run;
-	cfg.jobs = jobs;
+	cfg.dry_run = o->dry_run;
+	cfg.jobs = o->jobs;
 
 	/* Dispatch action or build */
-	if (action) {
-		if (strcmp(action, "clean") == 0) {
+	if (o->action) {
+		if (strcmp(o->action, "clean") == 0) {
 			result = build_clean(&graph, &cfg);
-		} else if (strcmp(action, "status") == 0) {
+		} else if (strcmp(o->action, "status") == 0) {
 			result = build_status(&graph, &cfg);
 		} else {
-			fprintf(stderr, "kiln: unknown action '%s'\n", action);
+			fprintf(stderr, "kiln: unknown action '%s'\n", o->action);
 			result = 1;
 		}
 	} else if (graph.order_count > 0) {
@@ -381,11 +332,129 @@ main(int argc, char **argv)
 		printf("kiln: nothing to do\n");
 	}
 
-cleanup:
+done:
 	free(needed);
-	free(targets);
 	kiln_free_commands();
 	picolFreeInterp(interp);
 	dag_free(&graph);
+	return result;
+}
+
+int
+main(int argc, char **argv)
+{
+	term_init();
+
+	/* Parse command-line arguments */
+	const char *triplets[MAX_LIBS];
+	int triplet_count = 0;
+	const char *libs[MAX_LIBS];
+	int lib_count = 0;
+	const char *files[MAX_LIBS];
+	int file_count = 0;
+	const char **targets = xmalloc(sizeof(char *) * (argc > 0 ? argc : 1));
+	int target_count = 0;
+	int result = 0;
+
+	struct kiln_options o;
+	o.variant = "release";
+	o.builddir = NULL;
+	o.action = NULL;
+	o.no_stdlib = 0;
+	o.dry_run = 0;
+	o.jobs = 0;
+
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "--triplet") == 0 && i + 1 < argc) {
+			if (triplet_count >= MAX_LIBS) {
+				fprintf(stderr, "kiln: too many --triplet arguments\n");
+				result = 1;
+				goto cleanup;
+			}
+			triplets[triplet_count++] = argv[++i];
+		} else if (strcmp(argv[i], "--variant") == 0 && i + 1 < argc) {
+			o.variant = argv[++i];
+		} else if (strcmp(argv[i], "--builddir") == 0 && i + 1 < argc) {
+			o.builddir = argv[++i];
+		} else if ((strcmp(argv[i], "-f") == 0 ||
+		            strcmp(argv[i], "--file") == 0) && i + 1 < argc) {
+			if (file_count >= MAX_LIBS) {
+				fprintf(stderr, "kiln: too many -f arguments\n");
+				result = 1;
+				goto cleanup;
+			}
+			files[file_count++] = argv[++i];
+		} else if ((strcmp(argv[i], "-a") == 0 ||
+		            strcmp(argv[i], "--action") == 0) && i + 1 < argc) {
+			o.action = argv[++i];
+		} else if (strcmp(argv[i], "--lib") == 0 && i + 1 < argc) {
+			if (lib_count >= MAX_LIBS) {
+				fprintf(stderr, "kiln: too many --lib arguments\n");
+				result = 1;
+				goto cleanup;
+			}
+			libs[lib_count++] = argv[++i];
+		} else if (strcmp(argv[i], "--no-stdlib") == 0) {
+			o.no_stdlib = 1;
+		} else if (strcmp(argv[i], "-n") == 0 ||
+		           strcmp(argv[i], "--dry-run") == 0) {
+			o.dry_run = 1;
+		} else if (strcmp(argv[i], "-j") == 0 && i + 1 < argc) {
+			o.jobs = atoi(argv[++i]);
+		} else if (strcmp(argv[i], "-h") == 0 ||
+		           strcmp(argv[i], "--help") == 0) {
+			usage();
+			goto cleanup;
+		} else if (argv[i][0] == '-') {
+			fprintf(stderr, "kiln: unknown option '%s'\n", argv[i]);
+			usage();
+			result = 1;
+			goto cleanup;
+		} else {
+			targets[target_count++] = argv[i];
+		}
+	}
+
+	/* Default to a single "Kilnfile" when no -f was given */
+	if (file_count == 0)
+		files[file_count++] = "Kilnfile";
+
+	if (o.jobs <= 0)
+		o.jobs = kiln_cpu_count();
+
+	o.libs = libs;
+	o.lib_count = lib_count;
+	o.files = files;
+	o.file_count = file_count;
+	o.targets = targets;
+	o.target_count = target_count;
+
+	/* Detect a single triplet when none was named. */
+	char triplet_buf[256];
+
+	if (triplet_count == 0) {
+		if (kiln_run_capture("cc -dumpmachine", triplet_buf,
+		                     sizeof(triplet_buf)) != OK) {
+			fprintf(stderr, "kiln: cc -dumpmachine failed. "
+			        "Use --triplet to specify the target triplet.\n");
+			result = 1;
+			goto cleanup;
+		}
+
+		triplets[triplet_count++] = triplet_buf;
+	}
+
+	/* Build each triplet in turn, each in its own interpreter and tree. */
+	for (int t = 0; t < triplet_count; t++) {
+		if (triplet_count > 1)
+			printf("%s== %s ==%s\n", term_green(), triplets[t],
+			       term_reset());
+
+		if (build_one(triplets[t], &o) != 0)
+			result = 1;
+	}
+
+cleanup:
+	free(targets);
 	return result;
 }

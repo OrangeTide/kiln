@@ -25,7 +25,8 @@ is the target toolchain identifier (e.g.\&
 The triplet is detected automatically via
 .B cc \-dumpmachine
 or set explicitly with
-.BR \-\-triplet .
+.BR \-\-triplet ,
+which may be repeated to build several triplets in one run.
 .PP
 By default
 .B kiln
@@ -63,6 +64,13 @@ below.
 Set the target triplet explicitly, skipping
 .B cc \-dumpmachine
 detection.
+May be given more than once to build several triplets in a single run;
+the build description is evaluated once per triplet with
+.B $Triplet
+set accordingly.
+A failure in one triplet does not stop the others, and
+.B kiln
+exits nonzero if any triplet failed.
 .TP
 .BI \-\-variant " name"
 Set the active build variant, which the standard-library
@@ -526,6 +534,14 @@ Dry run with explicit triplet:
 .RS
 .nf
 kiln -n --triplet arm-linux-gnueabihf
+.fi
+.RE
+.PP
+Build two triplets in one run, each with its own toolchain and tree:
+.PP
+.RS
+.nf
+kiln --triplet arm-linux-gnueabihf --triplet riscv64-linux-gnu
 .fi
 .RE
 .PP

@@ -1100,6 +1100,49 @@ else
 fi
 
 # =========================================================================
+printf "=== Multiple triplets ===\n"
+# =========================================================================
+
+TMT="$TMPDIR/multi"
+mkdir -p "$TMT"
+cd "$TMT"
+echo 'int main(void){return 0;}' > m.c
+cat > Kilnfile <<'EOF'
+builddir build/$Triplet
+cc_program app [glob *.c] "-O2"
+default app
+EOF
+
+# Two triplets in one invocation build into separate trees.
+OUT=$("$KILN" --triplet aa --triplet bb 2>&1)
+check_contains "multi: first triplet banner" "$OUT" "== aa =="
+check_contains "multi: second triplet banner" "$OUT" "== bb =="
+check_file_exists "multi: first triplet output" "$TMT/build/aa/app"
+check_file_exists "multi: second triplet output" "$TMT/build/bb/app"
+
+# $Triplet drives each build independently (toolchain and directory).
+OUT=$("$KILN" --triplet x1 --triplet x2 -n 2>&1)
+check_contains "multi: per-triplet path x1" "$OUT" "build/x1/app"
+check_contains "multi: per-triplet path x2" "$OUT" "build/x2/app"
+
+# A single triplet prints no banner (unchanged behavior).
+OUT=$("$KILN" --triplet solo -n 2>&1)
+check_not_contains "multi: no banner for one triplet" "$OUT" "== solo =="
+
+# A failure in one triplet does not stop the others; the overall exit
+# status is nonzero.
+cat > Kilnfile <<'EOF'
+phony check {
+    command {sh -c "test $Triplet != fail"}
+}
+default check
+EOF
+OUT=$("$KILN" --triplet fail --triplet ok 2>&1) && rc=0 || rc=$?
+check_contains "multi: failing triplet reported" "$OUT" "== fail =="
+check_contains "multi: later triplet still runs" "$OUT" "== ok =="
+check "multi: overall failure exit status" "$rc" "1"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

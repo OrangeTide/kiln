@@ -49,6 +49,7 @@ kiln -f other.kiln           # read a build description other than ./Kilnfile
 kiln -a clean                # delete outputs and depfiles, remove empty dirs
 kiln -n                      # dry run (print commands only)
 kiln --triplet arm-linux-gnueabihf   # cross-compile
+kiln --triplet arm-linux-gnueabihf --triplet riscv64-linux-gnu   # both
 ```
 
 kiln reads `./Kilnfile` by default; pass `-f` one or more times to read
@@ -56,6 +57,13 @@ other files. Any non-option arguments are targets to build: a file name a
 rule produces, a `phony` task, or an `alias`. With no targets, kiln builds
 the `default` declared in the Kilnfile, or every target if none is
 declared. A requested target builds only itself and what it depends on.
+
+Pass `--triplet` more than once to build several triplets in a single
+invocation. kiln evaluates the Kilnfile once per triplet with `$Triplet`
+set accordingly, so a per-target toolchain (`set CC "$Triplet-gcc"`) and a
+per-triplet build directory (`builddir build/$Triplet`) fall out of
+re-reading the file. A failure in one triplet does not stop the others,
+and kiln exits nonzero if any triplet failed.
 
 ## Example Kilnfile
 
@@ -318,7 +326,7 @@ sh doc/gen-screenshot.sh
 | `-f F`, `--file F` | Read build description F (default `Kilnfile`; repeatable) |
 | `-a clean` | Delete declared outputs and generated depfiles, then empty dirs |
 | `-a status` | Report out-of-date targets and stale database entries |
-| `--triplet T` | Set target triplet (skip `cc -dumpmachine`) |
+| `--triplet T` | Set target triplet (repeatable; skip `cc -dumpmachine`) |
 | `--variant V` | Set build variant (default `release`) |
 | `--builddir P` | Set build directory prefix for rule outputs |
 | `--lib F` | Load a Tcl library before Kilnfiles (repeatable) |

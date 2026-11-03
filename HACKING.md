@@ -88,6 +88,21 @@ live in picol.c (upstream); `src/xmalloc.h` provides forward
 declarations so modules included before picol.c in the unity build can
 still use them.
 
+## Driver and triplets
+
+`main()` parses the command line once into a `struct kiln_options` plus a
+list of `--triplet` values (repeatable), then calls `build_one()` per
+triplet. `build_one` owns the whole per-triplet lifecycle: a fresh
+interpreter and DAG, the stdlib and Kilnfile eval, target selection, and
+the action or build. A fresh interpreter each time resets `$Triplet`,
+`$CC`, and every other global, so a per-target toolchain follows from
+re-reading the Kilnfile; it also means no state leaks between triplets.
+`kiln_set_builddir` is reset at the top of each `build_one` so one
+triplet's Kilnfile `builddir` does not carry into the next. A failing
+triplet is recorded and the loop continues, so `main` returns nonzero if
+any triplet failed. With one triplet there is no banner, preserving the
+single-target output.
+
 ## Actions
 
 kiln uses `--action` (`-a`) for built-in operations that are not
