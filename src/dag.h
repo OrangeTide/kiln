@@ -7,6 +7,7 @@
 enum {
 	NODE_FILE,
 	NODE_CMD,
+	NODE_PHONY,
 };
 
 /*
@@ -79,6 +80,9 @@ int dag_add_file(struct dag *g, const char *path);
 
 /* dag_add_cmd adds a command node and returns its id. */
 int dag_add_cmd(struct dag *g, const char *command, const char *depfile);
+
+/* dag_add_phony adds a named phony-target node and returns its id. */
+int dag_add_phony(struct dag *g, const char *name);
 
 /* dag_find_file returns the id of a file node, or -1 if not found. */
 int dag_find_file(struct dag *g, const char *path);

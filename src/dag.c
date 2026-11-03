@@ -173,6 +173,12 @@ dag_add_cmd(struct dag *g, const char *command, const char *depfile)
 }
 
 int
+dag_add_phony(struct dag *g, const char *name)
+{
+	return dag_add_node(g, NODE_PHONY, name);
+}
+
+int
 dag_find_file(struct dag *g, const char *path)
 {
 	return htab_find(g, path);

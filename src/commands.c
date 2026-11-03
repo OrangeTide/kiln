@@ -189,6 +189,61 @@ cmd_rule_depfile(struct picolInterp *i, int argc,
 	return PICOL_OK;
 }
 
+/* Expand a command template with $out/$in/$depfile set. The template
+ * arrived in braces (unsubstituted), so wrap it as a double-quoted string
+ * to expand $var and [cmd], escaping embedded double quotes so they stay
+ * literal. Returns the expanded command (caller frees) or NULL, storing
+ * the picol return code in *ret. */
+static char *
+expand_command(struct picolInterp *i, const char *t, int *ret)
+{
+	size_t tlen = strlen(t);
+	size_t quotes = 0;
+
+	for (size_t k = 0; k < tlen; k++)
+		if (t[k] == '"') quotes++;
+
+	char *eval_cmd = xmalloc(7 + tlen + quotes + 2);
+	char *w = eval_cmd;
+	memcpy(w, "set _ \"", 7);
+	w += 7;
+
+	for (size_t k = 0; k < tlen; k++) {
+		if (t[k] == '"') *w++ = '\\';
+
+		*w++ = t[k];
+	}
+
+	*w++ = '"';
+	*w = '\0';
+	*ret = picolEval(i, eval_cmd);
+	free(eval_cmd);
+
+	if (*ret != PICOL_OK) return NULL;
+
+	return xstrdup(i->result);
+}
+
+/* Add a file->command edge for each name in a space-separated list. */
+static void
+add_input_edges(int cmd_id, const char *names)
+{
+	if (!names) return;
+
+	const char *p = names;
+	const char *start;
+	int len;
+
+	while (list_next(&p, &start, &len)) {
+		char *name = xmalloc(len + 1);
+		memcpy(name, start, len);
+		name[len] = '\0';
+		int file_id = dag_file(g_dag, name);
+		dag_add_edge(g_dag, file_id, cmd_id);
+		free(name);
+	}
+}
+
 /**
  * rule output_or_list { body }
  *
@@ -275,81 +330,23 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 		return PICOL_ERR;
 	}
 
-	// Evaluate the command template with all variables ($out, $in,
-	// $depfile) now set. The template arrived in braces, so Tcl has not
-	// substituted it yet. Wrap it as a double-quoted string so $var and
-	// [cmd] expand, escaping any embedded double quote so it stays a
-	// literal instead of closing the string early.
-	{
-		const char *t = g_rule.command_template;
-		size_t tlen = strlen(t);
-		size_t quotes = 0;
+	g_rule.command = expand_command(i, g_rule.command_template, &ret);
+	free(g_rule.command_template);
+	g_rule.command_template = NULL;
 
-		for (size_t k = 0; k < tlen; k++)
-			if (t[k] == '"') quotes++;
-
-		char *eval_cmd = xmalloc(7 + tlen + quotes + 2);
-		char *w = eval_cmd;
-		memcpy(w, "set _ \"", 7);
-		w += 7;
-
-		for (size_t k = 0; k < tlen; k++) {
-			if (t[k] == '"') *w++ = '\\';
-
-			*w++ = t[k];
-		}
-
-		*w++ = '"';
-		*w = '\0';
-		ret = picolEval(i, eval_cmd);
-		free(eval_cmd);
-		free(g_rule.command_template);
-		g_rule.command_template = NULL;
-
-		if (ret != PICOL_OK) {
-			free(output_list);
-			rule_state_free(&g_rule);
-			return ret;
-		}
-
-		g_rule.command = xstrdup(i->result);
+	if (!g_rule.command) {
+		free(output_list);
+		rule_state_free(&g_rule);
+		return ret;
 	}
 
 	// Build DAG nodes
 	int cmd_id = dag_add_cmd(g_dag, g_rule.command, g_rule.depfile);
 
-	// Parse and add input file nodes -> edges to command
-	if (g_rule.inputs) {
-		const char *p = g_rule.inputs;
-		const char *start;
-		int len;
-
-		while (list_next(&p, &start, &len)) {
-			char *name = xmalloc(len + 1);
-			memcpy(name, start, len);
-			name[len] = '\0';
-			int file_id = dag_file(g_dag, name);
-			dag_add_edge(g_dag, file_id, cmd_id);
-			free(name);
-		}
-	}
-
-	// Tool dependencies: added as command inputs so staleness and
-	// ordering apply, but they were never added to $in.
-	if (g_rule.tools) {
-		const char *p = g_rule.tools;
-		const char *start;
-		int len;
-
-		while (list_next(&p, &start, &len)) {
-			char *name = xmalloc(len + 1);
-			memcpy(name, start, len);
-			name[len] = '\0';
-			int file_id = dag_file(g_dag, name);
-			dag_add_edge(g_dag, file_id, cmd_id);
-			free(name);
-		}
-	}
+	// Inputs (set $in) and tool deps (kept out of $in) both become
+	// file->command edges so staleness and ordering apply.
+	add_input_edges(cmd_id, g_rule.inputs);
+	add_input_edges(cmd_id, g_rule.tools);
 
 	// Parse and add output file nodes -- command -> edges to outputs
 	{
@@ -368,6 +365,72 @@ cmd_rule(struct picolInterp *i, int argc, char **argv,
 	}
 
 	free(output_list);
+	rule_state_free(&g_rule);
+	return PICOL_OK;
+}
+
+/**
+ * phony name { body }
+ *
+ * Declare a named target that runs a command but produces no file.
+ * The body uses inputs, uses, and command as in rule, and $out is set
+ * to the target name. A phony target has no output to prove it is up to
+ * date, so it runs whenever the build reaches it.
+ */
+static int
+cmd_phony(struct picolInterp *i, int argc, char **argv,
+          struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc != 3) return picolArityErr(i, argv[0]);
+
+	const char *name = argv[1];
+	char *body = argv[2];
+
+	rule_state_clear(&g_rule);
+
+	picolSetVar(i, "out", (char *)name);
+	picolSetVar(i, "in", "");
+	picolSetVar(i, "depfile", "");
+
+	picolRegisterCommand(i, "inputs", cmd_rule_inputs);
+	picolRegisterCommand(i, "uses", cmd_rule_uses);
+	picolRegisterCommand(i, "command", cmd_rule_command);
+	picolRegisterCommand(i, "depfile", cmd_rule_depfile);
+
+	int ret = picolEval(i, body);
+
+	if (ret != PICOL_OK) {
+		rule_state_free(&g_rule);
+		return ret;
+	}
+
+	if (!g_rule.command_template) {
+		char buf[256];
+		snprintf(buf, sizeof(buf), "%s:%d: phony '%s': no command specified",
+		         i->current_file ? i->current_file : "<eval>",
+		         i->current_line, name);
+		picolSetResult(i, buf);
+		rule_state_free(&g_rule);
+		return PICOL_ERR;
+	}
+
+	g_rule.command = expand_command(i, g_rule.command_template, &ret);
+	free(g_rule.command_template);
+	g_rule.command_template = NULL;
+
+	if (!g_rule.command) {
+		rule_state_free(&g_rule);
+		return ret;
+	}
+
+	int cmd_id = dag_add_cmd(g_dag, g_rule.command, g_rule.depfile);
+	add_input_edges(cmd_id, g_rule.inputs);
+	add_input_edges(cmd_id, g_rule.tools);
+
+	int phony_id = dag_add_phony(g_dag, name);
+	dag_add_edge(g_dag, cmd_id, phony_id);
+
 	rule_state_free(&g_rule);
 	return PICOL_OK;
 }
@@ -480,6 +543,7 @@ void
 kiln_register_commands(struct picolInterp *i)
 {
 	picolRegisterCommand(i, "rule", cmd_rule);
+	picolRegisterCommand(i, "phony", cmd_phony);
 	picolRegisterCommand(i, "source", cmd_source);
 	picolRegisterCommand(i, "builddir", cmd_builddir);
 }

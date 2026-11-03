@@ -112,6 +112,22 @@ flag) and write outputs as plain paths. kiln prepends the prefix to
 rule outputs and depfiles automatically, and resolves inputs that name
 a prefixed build output.
 
+## Phony Targets
+
+A `phony` target runs a command but produces no file, for tasks like
+running or testing:
+
+```tcl
+phony run {
+    inputs app
+    command {./app}
+}
+```
+
+Because a phony target has no output to prove it is up to date, it runs
+whenever the build reaches it. kiln currently builds the whole DAG, so a
+phony runs on every build; per-target selection is on the roadmap.
+
 ## Standard Library
 
 A small standard library (`lib/kiln.tcl`) is bundled into the binary and

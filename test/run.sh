@@ -755,6 +755,47 @@ OUT=$(CC=ENVCC "$KILN" --triplet t -n Kilnfile2 2>&1)
 check_contains "CC override from env" "$OUT" "ENVCC -o app"
 
 # =========================================================================
+printf "=== Phony targets ===\n"
+# =========================================================================
+
+TPH="$TMPDIR/phony"
+mkdir -p "$TPH"
+cd "$TPH"
+
+echo hi > src.txt
+
+cat > Kilnfile <<'EOF'
+rule out.txt {
+    inputs src.txt
+    command {cp $in $out}
+}
+phony show {
+    inputs out.txt
+    command {cat out.txt}
+}
+EOF
+
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "phony: first build runs file and phony" "$OUT" "built 2 targets"
+check_contains "phony: command output" "$OUT" "hi"
+
+# The file target is up to date, but the phony still runs.
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "phony: reruns when file up to date" "$OUT" "built 1 target"
+check_contains "phony: still produces output" "$OUT" "hi"
+
+OUT=$("$KILN" --triplet t -a status Kilnfile 2>&1)
+check_contains "phony: status labels by name" "$OUT" "show"
+
+cat > Kilnfile <<'EOF'
+phony bad {
+    inputs src.txt
+}
+EOF
+OUT=$("$KILN" --triplet t Kilnfile 2>&1 || true)
+check_contains "phony: missing command errors" "$OUT" "no command specified"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

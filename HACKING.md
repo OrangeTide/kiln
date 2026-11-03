@@ -39,7 +39,7 @@ Exported functions are prefixed by their module name:
 
 Static Tcl command handlers use the `cmd_` prefix:
 
-- `cmd_rule`, `cmd_source`, `cmd_builddir` (commands.c)
+- `cmd_rule`, `cmd_phony`, `cmd_source`, `cmd_builddir` (commands.c)
 - `cmd_rule_inputs`, `cmd_rule_uses`, `cmd_rule_command`,
   `cmd_rule_depfile` (commands.c; registered only while a `rule` body is
   evaluated)
@@ -141,6 +141,7 @@ Build descriptions are written in Tcl and loaded from files named
       command <string>         # shell command (expands $out, $in, $depfile)
       depfile <path>           # optional gcc-style depfile
 
+    phony <name> { body }      # named task target, no file output
     source <filename>          # include another Kilnfile
     builddir <path>            # set output prefix (sets $BuildDir)
 

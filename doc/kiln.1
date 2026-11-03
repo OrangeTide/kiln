@@ -137,6 +137,16 @@ Sets the variable
 .BR $depfile .
 .RE
 .TP
+.BI "phony " "name " { " body " }
+Declare a named target that runs a command but produces no file, such
+as a run or test task.
+The
+.I body
+uses the same commands as
+.BR rule .
+A phony target has no output to check for freshness, so it runs
+whenever the build reaches it.
+.TP
 .BI "source " filename
 Read and evaluate another Tcl file.
 Searches the current directory first, then each directory in the

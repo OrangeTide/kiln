@@ -804,13 +804,24 @@ build_status(struct dag *g, struct build_config *cfg)
 			}
 		}
 
+		const char *label = first_output;
+
+		if (!label) {
+			for (struct dag_edge *e = n->outputs; e; e = e->next)
+				if (g->nodes[e->node_id]->type == NODE_PHONY) {
+					label = g->nodes[e->node_id]->name;
+					break;
+				}
+		}
+
+		if (!label) label = "(command)";
+
 		if (!header) {
 			printf("\nout of date:\n");
 			header = 1;
 		}
 
-		printf("  %s%s\n", first_output ? first_output : "(no output)",
-		       missing ? "   (missing output)" : "");
+		printf("  %s%s\n", label, missing ? "   (missing output)" : "");
 	}
 
 	cdb_writer_free(&scratch);

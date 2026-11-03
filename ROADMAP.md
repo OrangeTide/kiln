@@ -122,9 +122,15 @@ producing files. The Skjegg Makefile has 327 rules, many of them phony test
 and run targets. kiln today requires every rule to produce a file output,
 which rules out `check`, `run`, and `install` as first-class targets.
 
-9. **Phony and task targets.** Support named targets that run commands and
-   produce no file, participating in the DAG by name. This is the
-   prerequisite for everything in this phase.
+9. **Phony and task targets. (done)** A `phony name { body }` command
+   declares a named target that runs a command but produces no file. It is a
+   command node with a `NODE_PHONY` output carrying the name; because it has
+   no file output, `node_is_dirty` already treats it as always out of date,
+   so it runs whenever the build reaches it, and `status` labels it by name.
+   The body reuses `rule`'s inputs/uses/command machinery (factored into
+   `expand_command` and `add_input_edges`). Since kiln still builds the whole
+   DAG, a phony runs on every build; per-target selection (item 11) is what
+   makes `run`/`test` tasks run on demand rather than every time.
 
 10. **Run and test integration.** Give a first-class way to express "build
     X, then run it, optionally under a wrapper such as an emulator, and check
