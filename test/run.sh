@@ -148,8 +148,9 @@ set SourcePath LIB_PATH_PLACEHOLDER
 source defs.tcl
 puts $GREETING
 TCLEOF
-# Patch in the actual path
-sed -i "s|LIB_PATH_PLACEHOLDER|$T/lib|" "$T/main.tcl"
+# Patch in the actual path (portable: BSD sed lacks GNU's in-place -i)
+sed "s|LIB_PATH_PLACEHOLDER|$T/lib|" "$T/main.tcl" > "$T/main.tcl.new"
+mv "$T/main.tcl.new" "$T/main.tcl"
 
 OUT=$("$KILN" --triplet t "$T/main.tcl" 2>&1)
 check_contains "source PATH search" "$OUT" "hello"
@@ -167,7 +168,8 @@ cat > "$T/err.tcl" <<'TCLEOF'
 set SourcePath LIB_PATH_PLACEHOLDER
 source bad.tcl
 TCLEOF
-sed -i "s|LIB_PATH_PLACEHOLDER|$T/lib|" "$T/err.tcl"
+sed "s|LIB_PATH_PLACEHOLDER|$T/lib|" "$T/err.tcl" > "$T/err.tcl.new"
+mv "$T/err.tcl.new" "$T/err.tcl"
 
 OUT=$("$KILN" --triplet t "$T/err.tcl" 2>&1 || true)
 check_contains "error in sourced file" "$OUT" "bad.tcl:2:"
