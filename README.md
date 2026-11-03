@@ -76,8 +76,9 @@ The `rule` command declares outputs, inputs, an optional depfile, and a
 shell command. Variables like `$out`, `$in`, and `$depfile` are set
 automatically. Since the body is Tcl, you have control flow (`if`,
 `while`, `for`, `foreach`), list commands (`list`, `lappend`, `lindex`,
-`llength`), `string`, `proc`, `catch`, `glob`, `file`, and more. A rule
-per source is just a loop:
+`llength`), `string`, `proc`, `catch`, `glob`, `file`, and `exec` (run a
+program at parse time and capture its output, for compiler or host
+probing). A rule per source is just a loop:
 
 ```tcl
 set objs {}

@@ -84,11 +84,13 @@ and list filtering precisely because the base language is weak.
    external tricks. Still missing and worth adding as needs arise: `lrange`,
    `lsort`, `switch`, `format`, and multi-variable `foreach`.
 
-6. **Config-time `exec`.** Expose a command that runs a program while the
-   Kilnfile is being evaluated and returns its output, the counterpart to
-   `cc -dumpmachine` that kiln already runs internally. This replaces
-   `$(shell uname -m)` and lets a Kilnfile probe the compiler, detect the
-   host, or read a tool version before declaring rules.
+6. **Config-time `exec`. (done)** `exec command ...` runs a command through
+   the shell while the Kilnfile is evaluated and returns its trimmed output
+   (wrapping `kiln_run_capture`); a failure raises a Tcl error that `catch`
+   can handle. This replaces `$(shell uname -m)` and lets a Kilnfile probe
+   the compiler or host before declaring rules. It also enables the item 2
+   pattern of tracking a `$PATH` tool: `uses [exec command -v cc]`. Output is
+   capped at 64 KiB, which suits probes, not bulk data.
 
 7. **Rule templates.** Provide an ergonomic way to declare one rule shape and
    apply it across many inputs or targets, keyed by a suffix or an

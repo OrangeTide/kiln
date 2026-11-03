@@ -45,7 +45,7 @@ Static Tcl command handlers use the `cmd_` prefix:
   evaluated)
 - `cmd_glob`, `cmd_file`, `cmd_lindex`, `cmd_llength`, `cmd_list`,
   `cmd_lappend`, `cmd_append`, `cmd_incr`, `cmd_foreach`, `cmd_for`,
-  `cmd_catch`, `cmd_eval`, `cmd_string` (picol_ext.c)
+  `cmd_catch`, `cmd_eval`, `cmd_string`, `cmd_exec` (picol_ext.c)
 
 Upstream picol functions keep their `picol` prefix - do not rename them.
 

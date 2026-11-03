@@ -767,6 +767,54 @@ cmd_string(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
 }
 
 /***************************************************************************
+ * exec command ...
+ *
+ * Run a command through the shell while the Kilnfile is being evaluated
+ * and return its standard output with trailing newlines stripped. Errors
+ * (fails to launch or exits non-zero) raise a Tcl error, so wrap it in
+ * catch to probe optionally. Intended for small probes such as compiler
+ * version or host detection; output is capped.
+ **************************************************************************/
+
+static int
+cmd_exec(struct picolInterp *i, int argc, char **argv, struct picolCmd *cmd)
+{
+	(void)cmd;
+	if (argc < 2) return picolArityErr(i, argv[0]);
+
+	struct sbuf b;
+	sbuf_init(&b);
+
+	for (int j = 1; j < argc; j++) {
+		if (j > 1) sbuf_putc(&b, ' ');
+
+		sbuf_puts(&b, argv[j]);
+	}
+
+	char *command = sbuf_done(&b);
+
+	size_t cap = 65536;
+	char *out = xmalloc(cap);
+	int ok = (kiln_run_capture(command, out, cap) == OK);
+
+	if (!ok) {
+		char buf[256];
+		snprintf(buf, sizeof(buf), "%s:%d: exec: command failed: %s",
+		         i->current_file ? i->current_file : "<eval>",
+		         i->current_line, command);
+		picolSetResult(i, buf);
+		free(out);
+		free(command);
+		return PICOL_ERR;
+	}
+
+	picolSetResult(i, out);
+	free(out);
+	free(command);
+	return PICOL_OK;
+}
+
+/***************************************************************************
  * Register all extension commands
  **************************************************************************/
 void
@@ -785,4 +833,5 @@ kiln_register_ext_commands(struct picolInterp *i)
 	picolRegisterCommand(i, "catch", cmd_catch);
 	picolRegisterCommand(i, "eval", cmd_eval);
 	picolRegisterCommand(i, "string", cmd_string);
+	picolRegisterCommand(i, "exec", cmd_exec);
 }

@@ -674,6 +674,36 @@ check_file_exists "foreach rule output a.o" "$TXR/a.o"
 check_file_exists "foreach collected link" "$TXR/all.txt"
 
 # =========================================================================
+printf "=== Config-time exec ===\n"
+# =========================================================================
+
+TE="$TMPDIR/exec"
+mkdir -p "$TE"
+
+cat > "$TE/t.tcl" <<'TCLEOF'
+puts [exec echo hello]
+puts [exec echo a b c]
+puts [catch {exec false}]
+TCLEOF
+
+OUT=$("$KILN" --triplet t "$TE/t.tcl" 2>&1)
+check "exec output" "$(echo "$OUT" | sed -n 1p)" "hello"
+check "exec joins args" "$(echo "$OUT" | sed -n 2p)" "a b c"
+check "exec failure via catch" "$(echo "$OUT" | sed -n 3p)" "1"
+
+cd "$TE"
+cat > Kilnfile <<'EOF'
+set greeting [exec echo hi]
+rule out.txt {
+    command {echo $greeting > out.txt}
+}
+EOF
+
+OUT=$("$KILN" --triplet t Kilnfile 2>&1)
+check_contains "exec drives a rule" "$OUT" "built 1 target"
+check "exec rule output" "$(cat out.txt)" "hi"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

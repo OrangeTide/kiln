@@ -197,6 +197,17 @@ and
 .BR equal ,
 .BR tolower ,
 .BR toupper ).
+.TP
+.BI "exec " "command ..."
+Run
+.I command
+through the shell while the Kilnfile is evaluated and return its
+standard output with trailing newlines removed.
+A command that fails to launch or exits non-zero raises an error, so
+wrap it in
+.B catch
+to probe optionally.
+Intended for small probes such as compiler version or host detection.
 .SS Predefined Variables
 .TP
 .B $Triplet
