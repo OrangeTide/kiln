@@ -223,9 +223,13 @@ which rules out `check`, `run`, and `install` as first-class targets.
 
 ## Phase 5: robustness and portability
 
-18. **Windows staleness.** On Windows the stat fingerprint sets `ino` to 0,
-    weakening change detection. Use the file index from
-    `GetFileInformationByHandle` or fall back to content hashing.
+18. **Windows staleness. (done)** On Windows the stat fingerprint set `ino`
+    to 0, weakening change detection. `kiln_stat_file` now opens a handle and
+    reads the NTFS file index from `GetFileInformationByHandle` into `ino`, so
+    a content-preserving replace is caught the same way it is on Unix. A
+    volume with no stable index reports 0 and the fingerprint falls back to
+    mtime, size, and ctime; if the handle cannot be opened it falls back to
+    `GetFileAttributesExA`.
 
 18a. **Create output directories. (done)** Before running a command,
     `build_execute` now creates the parent directory of each of its file

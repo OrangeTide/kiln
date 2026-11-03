@@ -568,6 +568,7 @@ kiln uses a two-level check for each input file:
 Compare the stat fingerprint (mtime, size, inode, ctime) against
 the value stored in
 .IR kiln.cdb .
+The inode is the NTFS file index on Windows.
 If it matches, the file is unchanged (fast path).
 .IP 2. 4
 If the stat differs, hash the file contents and compare against the

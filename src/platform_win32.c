@@ -14,26 +14,79 @@
 #include <string.h>
 #include <errno.h>
 
+/* Convert a FILETIME (100ns intervals since 1601) to sec + nsec. */
+static void
+filetime_to_unix(FILETIME ft, long long *sec, long *nsec)
+{
+	ULARGE_INTEGER t;
+
+	t.LowPart = ft.dwLowDateTime;
+	t.HighPart = ft.dwHighDateTime;
+	*sec = (long long)(t.QuadPart / 10000000ULL) - 11644473600LL;
+	*nsec = (long)(t.QuadPart % 10000000ULL) * 100;
+}
+
 int
 kiln_stat_file(const char *path, struct kiln_stat *st)
 {
-	WIN32_FILE_ATTRIBUTE_DATA info;
+	/*
+	 * Open a handle so GetFileInformationByHandle can supply the NTFS
+	 * file index, the closest equivalent to a Unix inode. It fills the
+	 * ino field so a content-preserving replace (same mtime and size,
+	 * different file) still changes the fingerprint and forces a hash
+	 * check. Zero access requests metadata only; BACKUP_SEMANTICS lets
+	 * the handle name a directory as well as a file, and the full share
+	 * mode avoids blocking a concurrent build step.
+	 */
+	HANDLE h = CreateFileA(path, 0,
+	                       FILE_SHARE_READ | FILE_SHARE_WRITE
+	                           | FILE_SHARE_DELETE,
+	                       NULL, OPEN_EXISTING,
+	                       FILE_FLAG_BACKUP_SEMANTICS, NULL);
 
-	if (!GetFileAttributesExA(path, GetFileExInfoStandard, &info))
+	if (h != INVALID_HANDLE_VALUE) {
+		BY_HANDLE_FILE_INFORMATION info;
+
+		if (!GetFileInformationByHandle(h, &info)) {
+			CloseHandle(h);
+			return ERR;
+		}
+
+		CloseHandle(h);
+
+		filetime_to_unix(info.ftLastWriteTime,
+		                 &st->mtime_sec, &st->mtime_nsec);
+		filetime_to_unix(info.ftCreationTime,
+		                 &st->ctime_sec, &st->ctime_nsec);
+		st->size = ((long long)info.nFileSizeHigh << 32)
+		           | info.nFileSizeLow;
+		/*
+		 * The 64-bit file index is unique within a volume. A volume
+		 * without one (FAT, some network shares) reports 0, which
+		 * leaves the fingerprint resting on mtime, size and ctime, as
+		 * it did before.
+		 */
+		st->ino = ((unsigned long long)info.nFileIndexHigh << 32)
+		          | info.nFileIndexLow;
+		return OK;
+	}
+
+	/*
+	 * CreateFileA can fail where GetFileAttributesExA still succeeds
+	 * (certain locked or special files). Fall back to attribute data
+	 * with no file index rather than reporting the file unstattable.
+	 */
+	WIN32_FILE_ATTRIBUTE_DATA attr;
+
+	if (!GetFileAttributesExA(path, GetFileExInfoStandard, &attr))
 		return ERR;
 
-	ULARGE_INTEGER mtime, ctime;
-	mtime.LowPart = info.ftLastWriteTime.dwLowDateTime;
-	mtime.HighPart = info.ftLastWriteTime.dwHighDateTime;
-	ctime.LowPart = info.ftCreationTime.dwLowDateTime;
-	ctime.HighPart = info.ftCreationTime.dwHighDateTime;
-	/* Convert 100ns intervals since 1601 to sec + nsec */
-	st->mtime_sec = (long long)(mtime.QuadPart / 10000000ULL) - 11644473600LL;
-	st->mtime_nsec = (long)(mtime.QuadPart % 10000000ULL) * 100;
-	st->ctime_sec = (long long)(ctime.QuadPart / 10000000ULL) - 11644473600LL;
-	st->ctime_nsec = (long)(ctime.QuadPart % 10000000ULL) * 100;
-	st->size = ((long long)info.nFileSizeHigh << 32) | info.nFileSizeLow;
-	st->ino = 0; /* Not reliable on Windows */
+	filetime_to_unix(attr.ftLastWriteTime,
+	                 &st->mtime_sec, &st->mtime_nsec);
+	filetime_to_unix(attr.ftCreationTime,
+	                 &st->ctime_sec, &st->ctime_nsec);
+	st->size = ((long long)attr.nFileSizeHigh << 32) | attr.nFileSizeLow;
+	st->ino = 0;
 	return OK;
 }
 

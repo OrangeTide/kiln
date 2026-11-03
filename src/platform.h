@@ -11,7 +11,9 @@
 
 /*
  * kiln_stat holds a filesystem fingerprint used for staleness detection.
- * On Windows, ino is always 0 (not reliable).
+ * ino is the Unix inode, or on Windows the NTFS file index. A volume that
+ * has no stable index (FAT, some network shares) reports 0, which leaves
+ * the fingerprint resting on mtime, size, and ctime.
  */
 struct kiln_stat {
 	long long mtime_sec;

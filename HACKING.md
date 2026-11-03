@@ -286,3 +286,13 @@ in `platform.h`.
 
 `mapfile.c` similarly uses `#ifdef` for POSIX mmap vs Win32
 CreateFileMapping.
+
+The `ino` field of `struct kiln_stat` is the Unix inode, and on Windows the
+NTFS file index. `kiln_stat_file` on Win32 opens a handle (zero access,
+`FILE_FLAG_BACKUP_SEMANTICS` so it also names directories, full share mode)
+and reads the index from `GetFileInformationByHandle`. This matters because
+the staleness fast path compares the whole fingerprint: without the index, a
+file replaced by different content with the same mtime and size would slip
+through. A volume with no stable index reports 0, and a file whose handle
+cannot be opened falls back to `GetFileAttributesExA` with a 0 index; both
+cases leave the fingerprint resting on mtime, size, and ctime as before.

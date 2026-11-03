@@ -348,8 +348,9 @@ The program then uses `getenv("MYAPP_DATADIR")` when set and falls back to
 
 Staleness is checked in three ways:
 
-- **Stat fingerprint** (mtime, size, inode, ctime) - if unchanged, skip
-  the file entirely (the fast path, one `stat()` call)
+- **Stat fingerprint** (mtime, size, inode, ctime; the inode is the NTFS
+  file index on Windows) - if unchanged, skip the file entirely (the fast
+  path, one `stat()` call)
 - **Content hash** - if stat changed but hash matches, the file was
   touched but not modified (e.g. `touch`)
 - **Command string hash** - if the command changed (new flags, different
