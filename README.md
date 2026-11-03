@@ -215,6 +215,36 @@ With this, `run` and `test` launch `qemu-arm ./app` instead of `./app`.
 Because the program is tracked as an input, changing the compiler or a
 source rebuilds it before the next run.
 
+## Build Variants
+
+A variant is a named set of flags with its own build directory, so debug,
+release, and sanitizer builds coexist without duplicating rules. Set the
+common flags, then declare one `variant` per configuration:
+
+```tcl
+set CFLAGS "-Wall -Wextra"
+variant release {-O2 -DNDEBUG}
+variant debug   {-O0 -g}
+variant asan    {-O1 -g -fsanitize=address}
+
+cc_program app [glob *.c] $CFLAGS
+```
+
+`--variant NAME` selects the active one (default `release`):
+
+```sh
+kiln                  # build/<triplet>/release, -O2 -DNDEBUG
+kiln --variant debug  # build/<triplet>/debug,   -O0 -g
+kiln --variant asan   # build/<triplet>/asan,    -fsanitize=address
+```
+
+The active variant appends its flags to the globals `CFLAGS` and
+`LDFLAGS` and sets the build directory to `build/<triplet>/<name>`, so
+each variant keeps its own outputs and staleness database. A variant's
+flags reach both compilation and linking, so a sanitizer that must be
+passed to the linker works from a single entry. The globals start empty,
+so a build depends only on the Kilnfile, not the ambient environment.
+
 ## How It Works
 
 1. **Parse** - evaluate Kilnfiles in a Tcl interpreter (Picol 2),
@@ -260,6 +290,7 @@ sh doc/gen-screenshot.sh
 | `-a clean` | Delete declared outputs and generated depfiles, then empty dirs |
 | `-a status` | Report out-of-date targets and stale database entries |
 | `--triplet T` | Set target triplet (skip `cc -dumpmachine`) |
+| `--variant V` | Set build variant (default `release`) |
 | `--builddir P` | Set build directory prefix for rule outputs |
 | `--lib F` | Load a Tcl library before Kilnfiles (repeatable) |
 | `--no-stdlib` | Skip the built-in standard library (`lib/kiln.tcl`) |

@@ -204,6 +204,14 @@ test failures are reported by the same path as build failures:
 `build_execute` prints `node_label()` (first file output, else phony
 name) and the command on any non-zero exit.
 
+Build variants are a stdlib concern: `kiln.c` only sets the Tcl variable
+`$Variant` from `--variant` (default `release`), the same way it sets
+`$Triplet`. The `variant name flags` helper appends to the `CFLAGS` and
+`LDFLAGS` globals and calls `builddir build/$Triplet/$name` when its name
+matches `$Variant`, so each variant gets its own output tree and CDB with
+no C support and no rule duplication. A variant whose name matches nothing
+declared leaves the flags and the default build directory untouched.
+
 ## Platform Abstraction
 
 Platform-specific code lives in `platform_unix.c` and

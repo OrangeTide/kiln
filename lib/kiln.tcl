@@ -14,6 +14,36 @@
 # for cross-compilation (e.g. set CC arm-linux-gnueabihf-gcc).
 set CC [getenv CC cc]
 
+# Flag globals shared by the cc_* helpers and the variant selector. CFLAGS
+# is passed to compilation; LDFLAGS is passed to linking by cc_program. A
+# variant appends to them. They start empty so a build depends only on the
+# Kilnfile, not the ambient environment; set common flags before declaring
+# variants, and use [getenv CFLAGS ""] explicitly if environment flags are
+# wanted.
+set CFLAGS ""
+set LDFLAGS ""
+
+# variant name flags
+#   Register a build variant. When name is the active $Variant (chosen
+#   with --variant, default release), append flags to both CFLAGS and
+#   LDFLAGS and place the build under build/$Triplet/name, so each variant
+#   keeps its own outputs and staleness state. Flags reach both the
+#   compile and the link step, so a sanitizer variant works with a single
+#   entry. The same rules serve every variant; pick one per run. Example:
+#       set CFLAGS "-Wall"
+#       variant release {-O2 -DNDEBUG}
+#       variant debug   {-O0 -g}
+#       variant asan    {-O1 -g -fsanitize=address}
+proc variant {name flags} {
+    if {[string equal $name $Variant]} {
+        if {[string length $CFLAGS]} { append CFLAGS " " }
+        append CFLAGS $flags
+        if {[string length $LDFLAGS]} { append LDFLAGS " " }
+        append LDFLAGS $flags
+        builddir build/$Triplet/$name
+    }
+}
+
 # cp_rule dst src
 #   Copy src to dst as a build step.
 proc cp_rule {dst src} {
@@ -51,7 +81,11 @@ proc cc_objects {sources flags} {
 #   Compile each source and link the resulting objects into out.
 proc cc_program {out sources flags} {
     set objs [cc_objects $sources $flags]
-    rule $out "inputs $objs ; command {$CC -o \$out \$in}"
+    set link $CC
+    if {[string length $LDFLAGS]} {
+        set link "$CC $LDFLAGS"
+    }
+    rule $out "inputs $objs ; command {$link -o \$out \$in}"
 }
 
 # RUN wraps a program launch, for running a cross-compiled binary under an

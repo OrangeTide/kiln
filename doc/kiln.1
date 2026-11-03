@@ -64,6 +64,13 @@ Set the target triplet explicitly, skipping
 .B cc \-dumpmachine
 detection.
 .TP
+.BI \-\-variant " name"
+Set the active build variant, which the standard-library
+.B variant
+selector uses to choose flags and a build directory.
+Defaults to
+.BR release .
+.TP
 .BI \-\-builddir " path"
 Set the build directory prefix for rule outputs.
 Rule outputs and depfiles are prefixed with
@@ -273,6 +280,10 @@ or
 .B $Triplet
 The target triplet string.
 .TP
+.B $Variant
+The active build variant, set by
+.BR \-\-variant .
+.TP
 .B $Jobs
 Number of parallel jobs.
 .TP
@@ -312,6 +323,14 @@ is the launch wrapper used by
 and
 .BR test ;
 it is empty by default and is read from the environment the same way.
+The globals
+.B CFLAGS
+and
+.B LDFLAGS
+hold compile and link flags; they start empty and are populated by the
+Kilnfile and the
+.B variant
+selector.
 .TP
 .BI "cc_program " "out sources flags"
 Compile each C source in the
@@ -372,6 +391,35 @@ Run a test program the same way as
 .BR run .
 A test is a program whose exit status is the verdict, so a non-zero exit
 fails the build.
+.TP
+.BI "variant " "name flags"
+Register a build variant.
+When
+.I name
+is the active
+.B $Variant
+.RB ( \-\-variant ,
+default
+.BR release ),
+append
+.I flags
+to the globals
+.B CFLAGS
+and
+.B LDFLAGS
+and set the build directory to
+.IR build/<triplet>/<name> ,
+so each variant keeps its own outputs and staleness database.
+The flags reach both compilation and linking, so a sanitizer variant
+works from one entry.
+.B CFLAGS
+and
+.B LDFLAGS
+start empty; set common flags before declaring variants, and pass
+.B $CFLAGS
+to the
+.B cc_*
+helpers.
 .SH STALENESS DETECTION
 kiln uses a two-level check for each input file:
 .IP 1. 4

@@ -157,10 +157,16 @@ which rules out `check`, `run`, and `install` as first-class targets.
 
 ## Phase 3: variants, generation, and multiple targets
 
-12. **Build variants.** Make debug, release, and sanitizer builds first-class,
-    each in its own build directory, without duplicating rules. The Skjegg
-    sanitizer build is a separate `CFLAGS` set bolted on; it should be a
-    variant selector instead.
+12. **Build variants. (done)** A `--variant NAME` flag (default `release`)
+    sets `$Variant`, and the stdlib `variant name flags` selector appends to
+    the `CFLAGS`/`LDFLAGS` globals and places the build under
+    `build/<triplet>/<name>` when its name is active. Debug, release, and
+    sanitizer builds are declared as one `variant` line each, share the same
+    rules, and keep separate output trees and staleness databases. Variant
+    flags reach both compile and link, so the Skjegg sanitizer set becomes a
+    single `variant asan {...}` rather than a bolted-on `CFLAGS` copy. The
+    flag globals start empty, so a build depends on the Kilnfile, not the
+    environment.
 
 13. **Generated files and codegen.** Bless a pattern for generating a source
     file from a command (a version header, a parser table). kiln's content

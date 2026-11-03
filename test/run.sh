@@ -993,6 +993,44 @@ OUT=$("$KILN" --triplet t -a clean 2>&1)
 check_contains "clean: nothing left to clean" "$OUT" "nothing to clean"
 
 # =========================================================================
+printf "=== Build variants ===\n"
+# =========================================================================
+
+TVAR="$TMPDIR/variant"
+mkdir -p "$TVAR"
+cd "$TVAR"
+echo 'int main(void){return 0;}' > m.c
+cat > Kilnfile <<'EOF'
+set CFLAGS "-Wall"
+variant release {-O2 -DNDEBUG}
+variant debug   {-O0 -g}
+variant asan    {-O1 -fsanitize=address}
+cc_program app [glob *.c] $CFLAGS
+EOF
+
+# The default variant is release: its flags and build directory are used.
+OUT=$("$KILN" --triplet t -n 2>&1)
+check_contains "variant: default uses release flags" "$OUT" "-O2 -DNDEBUG -c"
+check_contains "variant: default build dir" "$OUT" "build/t/release/app"
+
+# --variant debug selects the debug flag set and its own directory.
+OUT=$("$KILN" --triplet t --variant debug -n 2>&1)
+check_contains "variant: debug flags" "$OUT" "-O0 -g -c"
+check_contains "variant: debug build dir" "$OUT" "build/t/debug/app"
+check_not_contains "variant: debug drops release flags" "$OUT" "-DNDEBUG"
+
+# A sanitizer variant passes its flag to the link step as well as compile.
+OUT=$("$KILN" --triplet t --variant asan -n 2>&1)
+check_contains "variant: asan links with sanitizer" "$OUT" \
+    "-fsanitize=address -o build/t/asan/app"
+
+# Variants keep separate trees, so two built variants coexist.
+"$KILN" --triplet t >/dev/null 2>&1
+"$KILN" --triplet t --variant debug >/dev/null 2>&1
+check_file_exists "variant: release artifact" "$TVAR/build/t/release/app"
+check_file_exists "variant: debug artifact" "$TVAR/build/t/debug/app"
+
+# =========================================================================
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 # =========================================================================

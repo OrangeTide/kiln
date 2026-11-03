@@ -1,18 +1,23 @@
-builddir build/$Triplet
-set cflags "-Wall -O2"
+# Build variants: pick one with --variant (default release). Each gets its
+# own build/$Triplet/<variant>/ tree, so debug and release coexist.
+#   kiln                  # release
+#   kiln --variant debug  # debug
+set CFLAGS "-Wall"
+variant release {-O2 -DNDEBUG}
+variant debug   {-O0 -g}
 
 # Shared library object
 rule greet.o {
     inputs greet.c
     depfile greet.d
-    command {cc $cflags -c -o $out $in -MMD -MF $depfile}
+    command {cc $CFLAGS -c -o $out $in -MMD -MF $depfile}
 }
 
 # hello program
 rule hello.o {
     inputs hello.c
     depfile hello.d
-    command {cc $cflags -c -o $out $in -MMD -MF $depfile}
+    command {cc $CFLAGS -c -o $out $in -MMD -MF $depfile}
 }
 
 rule hello {
@@ -24,7 +29,7 @@ rule hello {
 rule goodbye.o {
     inputs goodbye.c
     depfile goodbye.d
-    command {cc $cflags -c -o $out $in -MMD -MF $depfile}
+    command {cc $CFLAGS -c -o $out $in -MMD -MF $depfile}
 }
 
 rule goodbye {

@@ -154,6 +154,7 @@ usage(void)
 	        "  -f, --file <file>    Read build description (default: Kilnfile;\n"
 	        "                       repeatable)\n"
 	        "  --triplet <triplet>  Set target triplet (skip cc -dumpmachine)\n"
+	        "  --variant <name>     Set build variant (default: release)\n"
 	        "  --builddir <path>    Set build directory prefix for rule outputs\n"
 	        "  -a, --action <name>  Run a built-in action (clean, status)\n"
 	        "  --lib <file.tcl>     Load a Tcl library before Kilnfiles\n"
@@ -179,6 +180,7 @@ main(int argc, char **argv)
 
 	/* Parse command-line arguments */
 	const char *triplet = NULL;
+	const char *variant = "release";
 	const char *builddir = NULL;
 	const char *action = NULL;
 	const char *libs[MAX_LIBS];
@@ -196,6 +198,8 @@ main(int argc, char **argv)
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--triplet") == 0 && i + 1 < argc) {
 			triplet = argv[++i];
+		} else if (strcmp(argv[i], "--variant") == 0 && i + 1 < argc) {
+			variant = argv[++i];
 		} else if (strcmp(argv[i], "--builddir") == 0 && i + 1 < argc) {
 			builddir = argv[++i];
 		} else if ((strcmp(argv[i], "-f") == 0 ||
@@ -259,6 +263,7 @@ main(int argc, char **argv)
 
 	/* Export settings as Tcl variables */
 	picolSetVar(interp, "Triplet", (char *)triplet);
+	picolSetVar(interp, "Variant", (char *)variant);
 	{
 		char buf[32];
 		snprintf(buf, sizeof(buf), "%d", jobs);
